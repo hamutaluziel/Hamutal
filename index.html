@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+  <html lang="he" dir="rtl">
+  <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>תערוכות בפריז 2026</title>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fafafa; color: #333; }
+.container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+header { text-align: center; padding: 40px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 30px; }
+h1 { font-size: 2.5em; font-weight: 300; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 30px; padding: 20px; background: white; border-radius: 8px; }
+.search-box, .filter-select { padding: 12px 15px; border: 1px solid #ddd; border-radius: 6px; }
+.main-content { display: grid; grid-template-columns: 1fr 350px; gap: 20px; }
+.exhibitions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+.exhibition-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.3s; }
+.exhibition-images { position: relative; width: 100%; height: 200px; }
+.exhibition-images img { width: 100%; height: 100%; object-fit: cover; }
+.exhibition-content { padding: 15px; }
+#map { width: 100%; height: 400px; border-radius: 6px; }
+</style>
+  </head>
+  <body>
+  <div class="container">
+  <header>
+  <h1>תערוכות בפריז 2026</h1>
+  </header>
+  <div class="controls">
+  <input type="text" id="searchInput" class="search-box" placeholder="חיפוש לפי שם...">
+  <select id="categoryFilter" class="filter-select">
+  <option value="">כל הקטגוריות</option>
+  <option value="אופנה">אופנה</option>
+  <option value="ציור">ציור</option>
+  <option value="צילום">צילום</option>
+  <option value="רחוב">רחוב</option>
+  </select>
+  </div>
+  <div class="main-content">
+  <div class="exhibitions-grid" id="exhibitionsGrid"></div>
+<div id="map"></div>
+  </div>
+  </div>
+  <script>
+  const exhibitions = [
+  {id: 1, name: "תערוכת תלבושות כריסטיאן לקרואה", category: "אופנה", location: "ארמון פונטנבלו", dates: "5 ביוני - 2 בנובמבר", description: "תערוכת תלבושות בהשראת מרי אנטואנט", lat: 48.3993, lng: 2.6977, images: ["https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=400"]},
+{id: 2, name: "ג'יאני ורסצ'ה", category: "אופנה", location: "מוזיאון מאילול", dates: "5 ביוני - 6 בספטמבר", description: "תערוכת אופנה", lat: 48.8566, lng: 2.2922, images: ["https://images.unsplash.com/photo-1595581001221-ceabc287e1f7?w=400"]},
+{id: 3, name: "לי מילר", category: "צילום", location: "מוזיאום לאמנות מודרנית", dates: "10 באפריל - 2 באוגוסט", description: "צלמת המלחמה", lat: 48.8606, lng: 2.2760, images: ["https://images.unsplash.com/photo-1609034227505-5876f6aa4e90?w=400"]}
+];
+  let map = L.map('map').setView([48.8566, 2.3522], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+exhibitions.forEach(e => L.circleMarker([e.lat, e.lng], {radius: 8}).bindPopup(e.name).addTo(map));
+document.getElementById('exhibitionsGrid').innerHTML = exhibitions.map(e => `<div class="exhibition-card"><img src="${e.images[0]}" style="width:100%; height:200px;"><div class="exhibition-content"><h3>${e.name}</h3><p>${e.description}</p></div></div>`).join('');
+</script>
+  </body>
+  </html>
