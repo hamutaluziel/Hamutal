@@ -6,34 +6,8 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Dolomiti Superski webcams
+      - name: Hosting check
         run: |
-          curl -sS "https://tourism.api.opendatahub.com/v1/WebcamInfo?source=dss&active=true&pagesize=1000&removenullvalues=true" -o dss.json
-          cat > a.py <<'PY'
-          import json, math, urllib.request
-          d = json.load(open('dss.json'))
-          it = d.get('Items', d) if isinstance(d, dict) else d
-          print('total', d.get('TotalResults') if isinstance(d, dict) else len(it), 'items', len(it))
-          A = {'cortina':(46.54,12.11),'kronplatz':(46.738,11.958),'altabadia':(46.549,11.893),'gardena':(46.548,11.74),'fassa':(46.47,11.775),'arabba':(46.49,11.875),'3zinnen':(46.70,12.36),'fiemme':(46.36,11.54),'sanmartino':(46.262,11.802),'pusteria':(46.70,11.72),'lusia':(46.38,11.79),'civetta':(46.40,12.03)}
-          def km(a,b,c,d):
-              x=(d-b)*math.cos(math.radians((a+c)/2));y=c-a;return math.hypot(x,y)*111.2
-          by = {k: [] for k in A}
-          nogps = 0
-          for c in it:
-              g = (c.get('GpsInfo') or [{}])[0]
-              if not g.get('Latitude'): nogps += 1; continue
-              best = min(A, key=lambda k: km(*A[k], g['Latitude'], g['Longitude']))
-              by[best].append((round(km(*A[best], g['Latitude'], g['Longitude']),1), c.get('Shortname'), (c.get('WebCamProperties') or {}).get('WebcamUrl'), (c.get('Mapping') or {}), c.get('AreaIds')))
-          print('nogps', nogps)
-          for k, v in by.items():
-              print('==', k, len(v))
-              for r in sorted(v)[:8]: print('   ', r[0], r[1], r[2])
-          urls = [r[2] for v in by.values() for r in v[:2] if r[2]]
-          for u in urls[:30]:
-              try:
-                  q = urllib.request.Request(u, method='GET', headers={'User-Agent':'Mozilla/5.0'})
-                  with urllib.request.urlopen(q, timeout=10) as r: print('IMG', r.status, r.headers.get('content-type'), r.headers.get('content-length'), u[:90])
-              except Exception as e: print('IMG ERR', e, u[:90])
-          print('SAMPLE', json.dumps(it[0])[:1500])
-          PY
-          python3 a.py
+          for u in "https://raw.githack.com/hamutaluziel/Hamutal/main/dolomiti/index.html" "https://rawcdn.githack.com/hamutaluziel/Hamutal/main/dolomiti/index.html" "https://hamutaluziel.github.io/Hamutal/dolomiti/"; do
+            echo "== $u"; curl -sS -L -D - -o page.html "$u" | grep -iE "^HTTP|content-type|content-security|x-frame" ; grep -o "<title>[^<]*" page.html | head -1; grep -c "source: \"dss\"" page.html || true
+          done
