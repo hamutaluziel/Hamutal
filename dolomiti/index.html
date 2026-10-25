@@ -1,13 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dolomiti Snow Board</title>
+<title>שלג בדולומיטים</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: a summary strip of the day's standouts, then one card per Dolomiti Superski area, sortable. */
+/* Layout: standouts → live webcams → snow-depth gauge + fresh-snow map → 7-day forecast grid. Every area opens an in-page detail window. */
 :root {
   --bg: #eef2f5;
   --surface: #ffffff;
@@ -15,19 +17,21 @@
   --muted: #5b6b78;
   --line: #d5dde4;
   --accent: #c2410c;       /* dolomite rock at sunset */
-  --snow: #2563a8;         /* snow / fresh-snow bars */
+  --snow: #2563a8;
   --snow-soft: #dbe8f6;
+  --official: #0f766e;     /* resort's own measurement */
   --good: #15803d;
   --warn: #b45309;
-  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
-  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --shade: rgba(9, 16, 24, .6);
+  --font-body: "Rubik", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0f161d; --surface: #17212b; --ink: #e6edf2; --muted: #93a3b1; --line: #26333f;
-    --accent: #f08a4b; --snow: #7fb3ea; --snow-soft: #1d3247; --good: #4ade80; --warn: #fbbf24;
+    --accent: #f08a4b; --snow: #7fb3ea; --snow-soft: #1d3247; --official: #2dd4bf;
+    --good: #4ade80; --warn: #fbbf24; --shade: rgba(0, 0, 0, .7);
     color-scheme: dark;
   }
 }
@@ -38,294 +42,530 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 48px; display: grid; gap: 24px; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 24px 48px; display: grid; gap: 28px; }
+.num { font-variant-numeric: tabular-nums; font-family: var(--font-data); direction: ltr; unicode-bidi: isolate; }
 
 header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
-h1 { font: 700 clamp(2rem, 5vw, 3.1rem)/1 var(--font-display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+h1 { font: 700 clamp(2rem, 5vw, 3rem)/1.05 var(--font-body); margin: 0; text-wrap: balance; }
 h1 span { color: var(--accent); }
-.sub { color: var(--muted); margin: 6px 0 0; max-width: 60ch; }
-.status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font: 13px var(--font-data); color: var(--muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.sub { color: var(--muted); margin: 6px 0 0; max-width: 62ch; }
+.status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
 .dot.live { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 20%, transparent); }
 .dot.err { background: var(--accent); }
 button {
-  font: 600 13px var(--font-body); color: var(--ink); background: var(--surface);
-  border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer;
+  font: 500 14px var(--font-body); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; cursor: pointer;
 }
 button:hover { border-color: var(--snow); }
-button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--snow); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--snow); outline-offset: 2px; }
 
-.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 12px; }
-.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 2px; }
-.stat .label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-.stat .value { font: 700 2rem/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
-.stat .value small { font-size: 1rem; color: var(--muted); font-weight: 600; }
+section { display: grid; gap: 12px; min-width: 0; }
+h2 { font: 600 1.4rem/1.2 var(--font-body); margin: 0; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.sec-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 2px; text-align: start; cursor: pointer; }
+.stat .label { font-size: 13px; color: var(--muted); }
+.stat .value { font: 700 2rem/1.1 var(--font-body); font-variant-numeric: tabular-nums; }
+.stat .value small { font-size: 1rem; color: var(--muted); font-weight: 500; }
 .stat .where { font-weight: 500; }
 
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
-.toolbar h2 { font: 600 1.5rem/1 var(--font-display); margin: 0; letter-spacing: .02em; }
-.toolbar label { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
-select { font: 500 13px var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+/* Webcams */
+.cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+@media (max-width: 600px) { .cams { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .cam .cap { padding: 18px 8px 6px; } .cam .cap b { font-size: 13px; } .cam .cap span { display: none; } .cam .temp { font-size: 1rem; } }
+.cam { position: relative; border-radius: 12px; overflow: hidden; background: var(--snow-soft); aspect-ratio: 16 / 9; max-width: 100%; cursor: pointer; border: 0; padding: 0; display: block; width: 100%; color: inherit; }
+.cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam .cap { position: absolute; inset: auto 0 0 0; padding: 22px 12px 10px; background: linear-gradient(transparent, var(--shade)); color: #fff; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; text-align: start; }
+.cam .cap b { font-weight: 600; font-size: 15px; }
+.cam .cap span { font-size: 12px; opacity: .9; }
+.cam .temp { font: 700 1.3rem/1 var(--font-body); }
+.cam .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
-.card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-.card h3 { font: 600 1.35rem/1.1 var(--font-display); margin: 0; letter-spacing: .01em; }
-.card .meta { font: 12px var(--font-data); color: var(--muted); }
-.wx { text-align: right; flex-shrink: 0; }
-.wx .icon { font-size: 1.6rem; line-height: 1; }
-.wx .temp { font: 700 1.7rem/1 var(--font-display); font-variant-numeric: tabular-nums; }
-.wx .cond { font-size: 12px; color: var(--muted); }
+/* Snow depth gauge + fresh snow map */
+.duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) { .duo { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.gauge { display: grid; gap: 7px; }
+.g-row { display: grid; grid-template-columns: minmax(0, clamp(6.5rem, 30%, 11rem)) minmax(0, 1fr) 4.2rem; gap: 10px; align-items: center; cursor: pointer; border-radius: 6px; padding: 2px 4px; background: none; border: 0; color: inherit; font: inherit; text-align: start; width: 100%; }
+.g-row:hover { background: var(--snow-soft); }
+.g-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: ltr; text-align: right; }
+.g-track { height: 18px; background: var(--bg); border-radius: 4px; position: relative; overflow: hidden; }
+.g-fill { position: absolute; inset-block: 0; inset-inline-start: 0; background: var(--snow); border-radius: 4px; }
+.g-fill.official { background: var(--official); }
+.g-val { font: 500 14px var(--font-data); text-align: end; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-inline-end: 5px; vertical-align: -1px; }
+#map { height: 360px; border-radius: 8px; z-index: 0; background: var(--bg); }
+.fresh-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--snow-soft); color: var(--snow); border: 0; cursor: pointer; }
+.chip b { font-family: var(--font-data); }
+.leaflet-tooltip.snow-label { background: none; border: 0; box-shadow: none; padding: 0; color: #fff; font: 700 12px var(--font-data); text-shadow: 0 0 3px #0b2545, 0 0 3px #0b2545; }
+.leaflet-tooltip.snow-label::before { display: none; }
 
-.figures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.fig { border-top: 2px solid var(--line); padding-top: 6px; min-width: 0; }
+/* Forecast grid */
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; min-width: 760px; }
+th, td { padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--line); }
+th { font-size: 13px; font-weight: 500; color: var(--muted); }
+th.area, td.area { text-align: start; padding-inline-start: 14px; white-space: nowrap; }
+td.area { font-weight: 500; direction: ltr; text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td.area { color: var(--snow); }
+.day-cell { display: grid; gap: 1px; justify-items: center; border-radius: 6px; padding: 4px 2px; }
+.day-cell .ic { font-size: 1.15rem; line-height: 1; }
+.day-cell .sn { font: 600 13px var(--font-data); color: var(--snow); min-height: 1.2em; }
+.day-cell .tt { font: 11px var(--font-data); color: var(--muted); direction: ltr; }
+
+/* Detail window */
+dialog { border: 0; border-radius: 16px; padding: 0; width: min(980px, calc(100% - 24px)); max-height: calc(100% - 24px); background: var(--surface); color: var(--ink); }
+dialog::backdrop { background: var(--shade); }
+.d-body { padding: 18px; display: grid; gap: 16px; }
+.d-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.d-head h3 { font: 700 1.6rem/1.15 var(--font-body); margin: 0; direction: ltr; text-align: right; }
+.d-head .meta { color: var(--muted); font-size: 13px; }
+.pano { overflow-x: auto; border-radius: 10px; background: var(--snow-soft); }
+.pano img { height: min(45vh, 420px); width: auto; max-width: none; display: block; min-width: 100%; object-fit: cover; }
+.pano .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+.cam-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cam-tabs button { font-size: 13px; padding: 4px 10px; }
+.cam-tabs button[aria-pressed="true"] { background: var(--snow); color: var(--surface); border-color: var(--snow); }
+.d-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 10px; }
+.fig { border-top: 3px solid var(--line); padding-top: 6px; }
 .fig.snow { border-color: var(--snow); }
-.fig .k { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
-.fig .v { font: 600 1.35rem/1.2 var(--font-display); font-variant-numeric: tabular-nums; }
-.fig .v small { font-size: .8rem; color: var(--muted); }
+.fig.official { border-color: var(--official); }
+.fig .k { font-size: 12px; color: var(--muted); }
+.fig .v { font: 600 1.5rem/1.2 var(--font-body); font-variant-numeric: tabular-nums; }
+.fig .v small { font-size: .85rem; color: var(--muted); font-weight: 400; }
+.fig .s { font-size: 12px; color: var(--muted); }
+svg.chart { width: 100%; height: auto; display: block; }
+svg.chart text { fill: var(--muted); font: 11px var(--font-data); }
+svg.chart .grid { stroke: var(--line); }
+svg.chart .bar { fill: var(--snow); opacity: .8; }
+svg.chart .line { stroke: var(--accent); fill: none; stroke-width: 2; }
+svg.chart .zero { stroke: var(--muted); stroke-dasharray: 3 3; }
+.days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.days .day-cell { background: var(--bg); padding: 8px 2px; }
+.days .dn { font-size: 12px; color: var(--muted); }
 
-.chart-title { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
-svg.bars { width: 100%; height: auto; display: block; }
-svg.bars text { fill: var(--muted); font: 10px var(--font-data); }
-svg.bars .bar { fill: var(--snow); }
-svg.bars .base { stroke: var(--line); }
-svg.bars .val { fill: var(--ink); }
-
-.card-foot { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; font-size: 13px; }
-.pill { font: 500 12px var(--font-data); padding: 2px 8px; border-radius: 999px; background: var(--snow-soft); color: var(--snow); }
-.pill.warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
-a { color: var(--snow); font-weight: 600; text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-.skeleton .v, .skeleton .temp { color: var(--line); }
 .notice { background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 12px 16px; }
-footer { color: var(--muted); font-size: 13px; display: grid; gap: 6px; max-width: 80ch; }
-@media (prefers-reduced-motion: no-preference) { .card { transition: border-color .2s; } .card:hover { border-color: var(--snow); } }
+footer { color: var(--muted); font-size: 13px; max-width: 80ch; }
+footer a { color: var(--snow); }
+@media (prefers-reduced-motion: no-preference) { .cam img { transition: transform .4s; } .cam:hover img { transform: scale(1.03); } }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div>
-      <h1>Dolomiti <span>Snow Board</span></h1>
-      <p class="sub">Snow depth, fresh snow and current weather on the slopes of all 12 Dolomiti Superski areas, measured at mid-mountain altitude.</p>
+      <h1>שלג <span>בדולומיטים</span></h1>
+      <p class="sub">מצלמות חיות, גובה שלג, איפה ירד שלג ומה צפוי בימים הקרובים, בכל 12 אזורי הסקי של Dolomiti Superski. לחיצה על אזור פותחת את כל הפרטים שלו.</p>
     </div>
     <div class="status">
       <span class="dot" id="dot"></span>
-      <span id="updated">Loading live data…</span>
-      <button id="refresh" type="button">Refresh</button>
+      <span id="updated">טוען נתונים חיים…</span>
+      <button id="refresh" type="button">רענון</button>
     </div>
   </header>
 
   <div id="notice" class="notice" hidden></div>
 
-  <section class="summary" id="summary" aria-label="Today's standouts"></section>
+  <section class="summary" id="summary" aria-label="הבולטים של היום"></section>
 
-  <section style="display:grid; gap:14px">
-    <div class="toolbar">
-      <h2>Ski areas</h2>
-      <label for="sort">Sort by
-        <select id="sort">
-          <option value="depth">Snow depth</option>
-          <option value="fresh">Fresh snow 24 h</option>
-          <option value="forecast">Snow next 7 days</option>
-          <option value="temp">Coldest first</option>
-          <option value="name">Name</option>
-        </select>
-      </label>
-    </div>
-    <div class="grid" id="grid"></div>
+  <section aria-labelledby="h-cams">
+    <div class="sec-head"><h2 id="h-cams">מצלמות חיות</h2><p class="hint">התמונה האחרונה מכל אזור. לחיצה מגדילה ומציגה מצלמות נוספות.</p></div>
+    <div class="cams" id="cams"></div>
   </section>
 
-  <footer>
-    <div>Weather and snow from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (forecast models, updated hourly). Snow depth is a model estimate for the altitude shown, not the resort's piste report. For official piste depths and open lifts, see <a href="https://www.dolomitisuperski.com/en/live-info" target="_blank" rel="noopener">Dolomiti Superski live info</a>.</div>
-    <div>The page refreshes itself every 30 minutes while it is open.</div>
-  </footer>
+  <div class="duo">
+    <section class="panel" aria-labelledby="h-depth">
+      <div class="sec-head"><h2 id="h-depth">גובה השלג</h2></div>
+      <div class="legend"><span><i style="background:var(--official)"></i>מדידה של אתר הסקי</span><span><i style="background:var(--snow)"></i>הערכת מודל מזג אוויר</span></div>
+      <div class="gauge" id="gauge"></div>
+    </section>
+    <section class="panel" aria-labelledby="h-fresh">
+      <div class="sec-head"><h2 id="h-fresh">איפה ירד שלג ב־24 השעות האחרונות</h2></div>
+      <div id="map" dir="ltr" role="img" aria-label="מפת שלג טרי"></div>
+      <div class="fresh-list" id="freshList"></div>
+    </section>
+  </div>
+
+  <section aria-labelledby="h-fc">
+    <div class="sec-head"><h2 id="h-fc">מה צפוי ב־7 הימים הקרובים</h2><p class="hint">בכל יום: מזג אוויר, שלג חדש בס״מ (כחול), טמפרטורה מקסימום/מינימום. ככל שהמשבצת כחולה יותר, צפוי יותר שלג.</p></div>
+    <div class="table-wrap"><table id="fc"></table></div>
+  </section>
+
+  <footer>מקורות: מזג אוויר ותחזית מ־<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>. מצלמות ומדידות שלג של אתרי הסקי מ־<a href="https://opendatahub.com/" target="_blank" rel="noopener">Open Data Hub</a> (פנומקס, פרטל ואחרים). מדידות האתרים קיימות בעיקר בדרום טירול; באזורים אחרים מוצגת הערכת מודל. הדף מתרענן לבד כל 30 דקות.</footer>
 </div>
 
+<dialog id="detail" aria-labelledby="d-title"></dialog>
+
 <script>
-const WEBCAMS = "https://www.dolomitisuperski.com/en/live-info/webcam";
-
-// The 12 Dolomiti Superski areas: a representative point and mid-mountain altitude (m).
+// The 12 Dolomiti Superski areas: representative point and mid-mountain altitude (m).
 const AREAS = [
-  { name: "Cortina d'Ampezzo",           place: "Tofana · Faloria",        lat: 46.540, lon: 12.110, ele: 2100 },
-  { name: "Kronplatz / Plan de Corones", place: "Kronplatz summit area",   lat: 46.738, lon: 11.958, ele: 2000 },
-  { name: "Alta Badia",                  place: "Corvara · San Cassiano",  lat: 46.549, lon: 11.893, ele: 2000 },
-  { name: "Val Gardena / Alpe di Siusi", place: "Selva · Ciampinoi",       lat: 46.548, lon: 11.740, ele: 2000 },
-  { name: "Val di Fassa / Carezza",      place: "Canazei · Belvedere",     lat: 46.470, lon: 11.775, ele: 2000 },
-  { name: "Arabba / Marmolada",          place: "Arabba · Porta Vescovo",  lat: 46.490, lon: 11.875, ele: 2100 },
-  { name: "3 Zinnen Dolomites",          place: "Sesto · Helm",            lat: 46.700, lon: 12.360, ele: 1900 },
-  { name: "Val di Fiemme / Obereggen",   place: "Pampeago · Obereggen",    lat: 46.360, lon: 11.540, ele: 1900 },
-  { name: "San Martino / Passo Rolle",   place: "San Martino di Castrozza", lat: 46.262, lon: 11.802, ele: 2000 },
-  { name: "Rio Pusteria / Bressanone",   place: "Plose · Gitschberg",      lat: 46.700, lon: 11.720, ele: 2000 },
-  { name: "Alpe Lusia / San Pellegrino", place: "Moena · Passo San Pellegrino", lat: 46.380, lon: 11.790, ele: 1950 },
-  { name: "Civetta",                     place: "Alleghe · Zoldo",         lat: 46.400, lon: 12.030, ele: 1900 },
+  { id: "cortina",  name: "Cortina d'Ampezzo",           he: "קורטינה",              lat: 46.540, lon: 12.110, ele: 2100 },
+  { id: "kronplatz",name: "Kronplatz / Plan de Corones", he: "קרונפלאץ",             lat: 46.738, lon: 11.958, ele: 2000 },
+  { id: "altabadia",name: "Alta Badia",                  he: "אלטה באדיה",           lat: 46.549, lon: 11.893, ele: 2000 },
+  { id: "gardena",  name: "Val Gardena / Alpe di Siusi", he: "ואל גרדנה",            lat: 46.548, lon: 11.740, ele: 2000 },
+  { id: "fassa",    name: "Val di Fassa / Carezza",      he: "ואל די פאסה",          lat: 46.470, lon: 11.775, ele: 2000 },
+  { id: "arabba",   name: "Arabba / Marmolada",          he: "ארבה / מרמולדה",       lat: 46.490, lon: 11.875, ele: 2100 },
+  { id: "3zinnen",  name: "3 Zinnen Dolomites",          he: "שלוש הפסגות",          lat: 46.700, lon: 12.360, ele: 1900 },
+  { id: "fiemme",   name: "Val di Fiemme / Obereggen",   he: "ואל די פיאמה",         lat: 46.360, lon: 11.540, ele: 1900 },
+  { id: "sanmartino",name: "San Martino / Passo Rolle",  he: "סן מרטינו",            lat: 46.262, lon: 11.802, ele: 2000 },
+  { id: "pusteria", name: "Rio Pusteria / Bressanone",   he: "ריו פוסטריה / בריקסן", lat: 46.700, lon: 11.720, ele: 2000 },
+  { id: "lusia",    name: "Alpe Lusia / San Pellegrino", he: "אלפה לוסיה",           lat: 46.380, lon: 11.790, ele: 1950 },
+  { id: "civetta",  name: "Civetta",                     he: "צ׳יווטה",              lat: 46.400, lon: 12.030, ele: 1900 },
 ];
+const byId = Object.fromEntries(AREAS.map(a => [a.id, a]));
 
-// WMO weather codes → label + symbol.
 const WMO = {
-  0: ["Clear", "☀"], 1: ["Mostly clear", "🌤"], 2: ["Partly cloudy", "⛅"], 3: ["Overcast", "☁"],
-  45: ["Fog", "🌫"], 48: ["Rime fog", "🌫"],
-  51: ["Light drizzle", "🌦"], 53: ["Drizzle", "🌦"], 55: ["Heavy drizzle", "🌧"],
-  56: ["Freezing drizzle", "🌧"], 57: ["Freezing drizzle", "🌧"],
-  61: ["Light rain", "🌦"], 63: ["Rain", "🌧"], 65: ["Heavy rain", "🌧"],
-  66: ["Freezing rain", "🌧"], 67: ["Freezing rain", "🌧"],
-  71: ["Light snow", "🌨"], 73: ["Snow", "🌨"], 75: ["Heavy snow", "❄"], 77: ["Snow grains", "🌨"],
-  80: ["Rain showers", "🌦"], 81: ["Rain showers", "🌧"], 82: ["Violent showers", "🌧"],
-  85: ["Snow showers", "🌨"], 86: ["Heavy snow showers", "❄"],
-  95: ["Thunderstorm", "⛈"], 96: ["Thunderstorm, hail", "⛈"], 99: ["Thunderstorm, hail", "⛈"],
+  0: ["בהיר", "☀️"], 1: ["בהיר ברובו", "🌤️"], 2: ["מעונן חלקית", "⛅"], 3: ["מעונן", "☁️"],
+  45: ["ערפל", "🌫️"], 48: ["ערפל קפוא", "🌫️"],
+  51: ["טפטוף קל", "🌦️"], 53: ["טפטוף", "🌦️"], 55: ["טפטוף חזק", "🌧️"], 56: ["טפטוף קופא", "🌧️"], 57: ["טפטוף קופא", "🌧️"],
+  61: ["גשם קל", "🌦️"], 63: ["גשם", "🌧️"], 65: ["גשם חזק", "🌧️"], 66: ["גשם קופא", "🌧️"], 67: ["גשם קופא", "🌧️"],
+  71: ["שלג קל", "🌨️"], 73: ["שלג", "🌨️"], 75: ["שלג כבד", "❄️"], 77: ["גרגרי שלג", "🌨️"],
+  80: ["ממטרים", "🌦️"], 81: ["ממטרים", "🌧️"], 82: ["ממטרים עזים", "🌧️"],
+  85: ["ממטרי שלג", "🌨️"], 86: ["ממטרי שלג כבדים", "❄️"],
+  95: ["סופת רעמים", "⛈️"], 96: ["סופת רעמים וברד", "⛈️"], 99: ["סופת רעמים וברד", "⛈️"],
 };
 const wmo = c => WMO[c] || ["—", "·"];
-
+const ODH = "https://tourism.api.opendatahub.com/v1/";
 const REFRESH_MS = 30 * 60 * 1000;
-let rows = [];
+const TZ = "Europe/Rome";
 
-function apiUrl() {
+const state = { wx: {}, cams: {}, official: {}, camPick: {} };
+let map, mapLayer;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (n, d = 0) => (n == null || Number.isNaN(+n)) ? "—" : (+n).toFixed(d);
+const fmt1 = n => fmt(n, n % 1 ? 1 : 0);
+const dayName = (t, i) => i === 0 ? "היום" : i === 1 ? "מחר" :
+  new Intl.DateTimeFormat("he-IL", { weekday: "short", timeZone: "UTC" }).format(new Date(t + "T12:00:00Z"));
+const dayDate = t => { const [, m, d] = t.split("-"); return `${+d}.${+m}`; };
+function km(a, b, c, d) {
+  const R = 6371, r = Math.PI / 180, x = (d - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r;
+  return Math.sqrt(x * x + y * y) * R;
+}
+const https = u => u ? String(u).replace(/^http:\/\//i, "https://") : u;
+
+/* ---------- Weather (Open-Meteo) ---------- */
+function meteoUrl() {
   const p = new URLSearchParams({
     latitude: AREAS.map(a => a.lat).join(","),
     longitude: AREAS.map(a => a.lon).join(","),
     elevation: AREAS.map(a => a.ele).join(","),
     current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_gusts_10m,snow_depth,freezing_level_height",
-    hourly: "snowfall,snow_depth",
+    hourly: "temperature_2m,snowfall,snow_depth,weather_code",
     daily: "weather_code,temperature_2m_max,temperature_2m_min,snowfall_sum",
-    past_days: "1",
-    forecast_days: "7",
-    timezone: "Europe/Rome",
+    past_days: "1", forecast_days: "7", timezone: TZ,
   });
   return "https://api.open-meteo.com/v1/forecast?" + p;
 }
 
-function toRow(area, d) {
+function toWx(d) {
   const c = d.current, h = d.hourly, dl = d.daily;
-  // Fresh snow: hourly snowfall over the 24 hours up to now.
-  const nowIdx = h.time.findIndex(t => t > c.time) - 1;
-  const end = nowIdx >= 0 ? nowIdx : h.time.length - 1;
+  let now = h.time.findIndex(t => t > c.time) - 1;
+  if (now < 0) now = h.time.length - 1;
   let fresh = 0;
-  for (let i = Math.max(0, end - 23); i <= end; i++) fresh += h.snowfall[i] || 0;
-  // Daily arrays start yesterday (past_days=1); keep today + 6 days.
-  const today = c.time.slice(0, 10);
-  const start = Math.max(0, dl.time.indexOf(today));
+  for (let i = Math.max(0, now - 23); i <= now; i++) fresh += h.snowfall[i] || 0;
+  const start = Math.max(0, dl.time.indexOf(c.time.slice(0, 10)));
   const days = dl.time.slice(start, start + 7).map((t, i) => ({
     t, snow: dl.snowfall_sum[start + i] || 0, code: dl.weather_code[start + i],
     max: dl.temperature_2m_max[start + i], min: dl.temperature_2m_min[start + i],
   }));
-  const depth = c.snow_depth ?? h.snow_depth[end] ?? 0;
+  const hours = h.time.slice(now, now + 48).map((t, i) => ({
+    t, temp: h.temperature_2m[now + i], snow: h.snowfall[now + i] || 0,
+  }));
   return {
-    ...area,
-    depth: Math.round(depth * 100),                 // m → cm
-    fresh: Math.round(fresh * 10) / 10,             // cm
+    depth: Math.round((c.snow_depth ?? h.snow_depth[now] ?? 0) * 100),
+    fresh: Math.round(fresh * 10) / 10,
     forecast: Math.round(days.reduce((s, x) => s + x.snow, 0) * 10) / 10,
     temp: c.temperature_2m, feels: c.apparent_temperature, code: c.weather_code,
     wind: c.wind_speed_10m, gust: c.wind_gusts_10m, freezing: c.freezing_level_height,
-    days, time: c.time,
+    days, hours,
   };
 }
 
-function bars(days) {
-  const W = 300, H = 92, top = 16, bottom = 18, gap = 8;
-  const bw = (W - gap * (days.length - 1)) / days.length;
-  const max = Math.max(5, ...days.map(d => d.snow));
-  const plotH = H - top - bottom;
-  const wd = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "Europe/Rome" });
-  const parts = days.map((d, i) => {
-    const x = i * (bw + gap), h = (d.snow / max) * plotH, y = top + plotH - h;
-    const label = i === 0 ? "Today" : wd.format(new Date(d.t + "T12:00:00Z"));
-    const val = d.snow >= 0.5 ? `<text class="val" x="${x + bw / 2}" y="${y - 4}" text-anchor="middle">${Math.round(d.snow)}</text>` : "";
-    return `<rect class="bar" x="${x}" y="${y}" width="${bw}" height="${Math.max(h, 0)}" rx="2"><title>${label}: ${d.snow.toFixed(1)} cm, ${Math.round(d.min)}° to ${Math.round(d.max)}°</title></rect>${val}
-      <text x="${x + bw / 2}" y="${H - 4}" text-anchor="middle">${label}</text>`;
-  }).join("");
-  return `<svg class="bars" viewBox="0 0 ${W} ${H}" role="img" aria-label="New snow per day, next 7 days">
-    <line class="base" x1="0" x2="${W}" y1="${top + plotH + .5}" y2="${top + plotH + .5}"/>${parts}</svg>`;
+async function loadWeather() {
+  const res = await fetch(meteoUrl());
+  if (!res.ok) throw new Error(`שירות מזג האוויר החזיר ${res.status}`);
+  let data = await res.json();
+  if (!Array.isArray(data)) data = [data];
+  AREAS.forEach((a, i) => { state.wx[a.id] = toWx(data[i]); });
 }
 
-const fmt = (n, d = 0) => (n == null || Number.isNaN(n)) ? "—" : n.toFixed(d);
+/* ---------- Webcams + resort snow measurements (Open Data Hub) ---------- */
+const items = j => Array.isArray(j) ? j : (j && Array.isArray(j.Items) ? j.Items : []);
+const titleOf = o => o?.Detail?.de?.Title || o?.Detail?.it?.Title || o?.Detail?.en?.Title || o?.Shortname || "";
+const gpsOf = o => { const g = (o?.GpsInfo || [])[0]; return g && g.Latitude ? g : null; };
 
-function card(r) {
-  const [cond, icon] = wmo(r.code);
-  const windy = r.gust >= 60;
-  return `<article class="card">
-    <div class="card-head">
-      <div><h3>${r.name}</h3><div class="meta">${r.place} · ${r.ele} m</div></div>
-      <div class="wx"><div class="icon" aria-hidden="true">${icon}</div>
-        <div class="temp">${fmt(r.temp)}°</div><div class="cond">${cond}</div></div>
-    </div>
-    <div class="figures">
-      <div class="fig snow"><div class="k">Snow depth</div><div class="v">${fmt(r.depth)} <small>cm</small></div></div>
-      <div class="fig snow"><div class="k">Fresh 24 h</div><div class="v">${fmt(r.fresh, r.fresh % 1 ? 1 : 0)} <small>cm</small></div></div>
-      <div class="fig"><div class="k">Wind</div><div class="v">${fmt(r.wind)} <small>km/h</small></div></div>
-    </div>
-    <div>
-      <div class="chart-title"><span>New snow, next 7 days (cm)</span><span>${fmt(r.forecast, 0)} cm total</span></div>
-      ${bars(r.days)}
-    </div>
-    <div class="card-foot">
-      <span>
-        <span class="pill">0° line ${r.freezing != null ? Math.round(r.freezing / 50) * 50 + " m" : "—"}</span>
-        ${windy ? `<span class="pill warn">Gusts ${Math.round(r.gust)} km/h</span>` : ""}
-      </span>
-      <a href="${WEBCAMS}" target="_blank" rel="noopener">Live webcams ↗</a>
-    </div>
-  </article>`;
+// Pick the image that best fits a card: not a tiny thumbnail, not a 20,000px panorama original.
+function camImage(cam) {
+  const list = (cam.ImageGallery || []).filter(i => i && i.ImageUrl);
+  const isImg = u => /\.(jpe?g|png|webp)(\?|$)/i.test(u || "");
+  const cands = list.map(i => ({ url: i.ImageUrl, w: i.Width || 0, thumb: /thumb/i.test(i.ImageUrl) }));
+  const wp = cam.WebCamProperties || {};
+  if (wp.PreviewUrl) cands.push({ url: wp.PreviewUrl, w: 0, thumb: false });
+  if (isImg(wp.WebcamUrl)) cands.push({ url: wp.WebcamUrl, w: 0, thumb: false });
+  if (!cands.length) return null;
+  const score = c => (c.thumb ? 5000 : 0) + (c.w ? Math.abs(c.w - 2400) / 10 : 120);
+  cands.sort((a, b) => score(a) - score(b));
+  return https(cands[0].url);
 }
 
-function skeletonCard(a) {
-  return `<article class="card skeleton"><div class="card-head"><div><h3>${a.name}</h3><div class="meta">${a.place} · ${a.ele} m</div></div>
-    <div class="wx"><div class="temp">—°</div></div></div>
-    <div class="figures"><div class="fig snow"><div class="k">Snow depth</div><div class="v">—</div></div>
-    <div class="fig snow"><div class="k">Fresh 24 h</div><div class="v">—</div></div>
-    <div class="fig"><div class="k">Wind</div><div class="v">—</div></div></div>
-    <div class="card-foot"><span></span><a href="${WEBCAMS}" target="_blank" rel="noopener">Live webcams ↗</a></div></article>`;
+async function loadCams(a) {
+  const p = new URLSearchParams({ active: "true", latitude: a.lat, longitude: a.lon, radius: "12000", pagesize: "12", removenullvalues: "true" });
+  const res = await fetch(ODH + "WebcamInfo?" + p);
+  if (!res.ok) throw new Error(res.status);
+  const seen = new Set(), out = [];
+  for (const c of items(await res.json())) {
+    const img = camImage(c);
+    if (!img || seen.has(img)) continue;
+    seen.add(img);
+    const g = gpsOf(c);
+    out.push({ title: titleOf(c) || a.name, img, alt: g?.Altitude || null });
+    if (out.length >= 6) break;
+  }
+  state.cams[a.id] = out;
 }
 
-function renderSummary() {
-  const best = (key, dir = 1) => rows.reduce((a, b) => (dir * b[key] > dir * a[key] ? b : a));
-  const tiles = [
-    ["Deepest snow", best("depth"), r => `${r.depth} <small>cm</small>`],
-    ["Most fresh snow (24 h)", best("fresh"), r => `${fmt(r.fresh, 1)} <small>cm</small>`],
-    ["Most snow coming (7 days)", best("forecast"), r => `${fmt(r.forecast, 0)} <small>cm</small>`],
-    ["Coldest right now", best("temp", -1), r => `${fmt(r.temp, 1)}°<small>C</small>`],
-  ];
-  document.getElementById("summary").innerHTML = tiles.map(([label, r, v]) =>
-    `<div class="stat"><span class="label">${label}</span><span class="value">${v(r)}</span><span class="where">${r.name}</span></div>`).join("");
-}
-
-function renderGrid() {
-  const by = document.getElementById("sort").value;
-  const sorted = [...rows].sort((a, b) =>
-    by === "name" ? a.name.localeCompare(b.name) :
-    by === "temp" ? a.temp - b.temp : b[by] - a[by]);
-  document.getElementById("grid").innerHTML = sorted.map(card).join("");
-}
-
-async function load() {
-  const dot = document.getElementById("dot"), upd = document.getElementById("updated"), notice = document.getElementById("notice");
-  upd.textContent = "Updating…";
-  try {
-    const res = await fetch(apiUrl());
-    if (!res.ok) throw new Error(`weather service answered ${res.status}`);
-    let data = await res.json();
-    if (!Array.isArray(data)) data = [data];
-    rows = AREAS.map((a, i) => toRow(a, data[i]));
-    renderSummary();
-    renderGrid();
-    notice.hidden = true;
-    dot.className = "dot live";
-    const t = new Intl.DateTimeFormat("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date());
-    upd.textContent = `Live · updated ${t} (Dolomites time)`;
-  } catch (e) {
-    dot.className = "dot err";
-    upd.textContent = "Could not update";
-    notice.hidden = false;
-    notice.textContent = `Live data could not be loaded (${e.message}). Check your internet connection and press Refresh.`;
+async function loadOfficial() {
+  const p = new URLSearchParams({ active: "true", pagesize: "300", removenullvalues: "true" });
+  const res = await fetch(ODH + "Weather/Measuringpoint?" + p);
+  if (!res.ok) throw new Error(res.status);
+  const pts = items(await res.json());
+  const weekAgo = Date.now() - 7 * 864e5;
+  // Each measuring point belongs to its nearest area; each area keeps its closest recent point.
+  for (const m of pts) {
+    const g = gpsOf(m);
+    const snow = parseFloat(m.SnowHeight);
+    if (!g || Number.isNaN(snow)) continue;
+    const upd = Date.parse(m.LastUpdate || "");
+    if (!(upd > weekAgo)) continue;
+    let near = null, dist = Infinity;
+    for (const a of AREAS) { const d = km(a.lat, a.lon, g.Latitude, g.Longitude); if (d < dist) { dist = d; near = a; } }
+    if (dist > 12) continue;
+    const cur = state.official[near.id];
+    if (!cur || dist < cur.dist) state.official[near.id] = { dist, snow, fresh: parseFloat(m.newSnowHeight), name: titleOf(m), alt: g.Altitude, upd };
   }
 }
 
-document.getElementById("grid").innerHTML = AREAS.map(skeletonCard).join("");
-try { const s = localStorage.getItem("dolomiti-sort"); if (s) document.getElementById("sort").value = s; } catch (_) {}
-document.getElementById("sort").addEventListener("change", e => {
-  try { localStorage.setItem("dolomiti-sort", e.target.value); } catch (_) {}
-  if (rows.length) renderGrid();
+/* ---------- Rendering ---------- */
+function depthOf(id) {
+  const o = state.official[id];
+  return o ? { cm: o.snow, official: true } : { cm: state.wx[id]?.depth ?? 0, official: false };
+}
+
+function renderSummary() {
+  const ids = AREAS.map(a => a.id).filter(id => state.wx[id]);
+  if (!ids.length) return;
+  const best = (f, dir = 1) => ids.reduce((x, y) => (dir * f(y) > dir * f(x) ? y : x));
+  const tiles = [
+    ["הכי הרבה שלג", best(id => depthOf(id).cm), id => `${fmt(depthOf(id).cm)} <small>ס״מ</small>`],
+    ["שלג טרי ב־24 שעות", best(id => state.wx[id].fresh), id => `${fmt1(state.wx[id].fresh)} <small>ס״מ</small>`],
+    ["הכי הרבה שלג צפוי השבוע", best(id => state.wx[id].forecast), id => `${fmt(state.wx[id].forecast)} <small>ס״מ</small>`],
+    ["הכי קר עכשיו", best(id => state.wx[id].temp, -1), id => `<span class="num">${fmt(state.wx[id].temp, 1)}°</span>`],
+  ];
+  document.getElementById("summary").innerHTML = tiles.map(([label, id, v]) =>
+    `<button class="stat" type="button" data-area="${id}"><span class="label">${label}</span><span class="value">${v(id)}</span><span class="where">${esc(byId[id].he)}</span></button>`).join("");
+}
+
+function camCard(a) {
+  const cams = state.cams[a.id];
+  const wx = state.wx[a.id];
+  const i = state.camPick[a.id] || 0;
+  const cam = cams && cams[i];
+  const media = cam
+    ? `<img src="${esc(cam.img)}" alt="מצלמה חיה: ${esc(cam.title)}" loading="lazy" data-cam="${a.id}" data-idx="${i}">`
+    : `<div class="empty">${cams ? "לא נמצאה מצלמה פעילה באזור הזה" : "טוען מצלמה…"}</div>`;
+  return `<button class="cam" type="button" data-area="${a.id}">${media}
+    <div class="cap"><div><b>${esc(a.he)}</b><br><span>${esc(cam ? cam.title : a.name)}</span></div>
+    ${wx ? `<div class="temp num">${wmo(wx.code)[1]} ${fmt(wx.temp)}°</div>` : ""}</div></button>`;
+}
+function renderCams() { document.getElementById("cams").innerHTML = AREAS.map(camCard).join(""); }
+
+// A webcam image that fails to load is skipped in favour of the next one nearby.
+document.addEventListener("error", e => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.dataset.cam) return;
+  const id = img.dataset.cam, idx = +img.dataset.idx, list = state.cams[id] || [];
+  if (img.closest("dialog")) {
+    list.splice(idx, 1); state.camPick[id] = 0; renderDetailCam(id); renderCams(); return;
+  }
+  list.splice(idx, 1);
+  state.camPick[id] = 0;
+  const card = document.querySelector(`.cams .cam[data-area="${id}"]`);
+  if (card) card.outerHTML = camCard(byId[id]);
+}, true);
+
+function renderGauge() {
+  const rows = AREAS.filter(a => state.wx[a.id]).map(a => ({ a, ...depthOf(a.id) })).sort((x, y) => y.cm - x.cm);
+  const max = Math.max(50, ...rows.map(r => r.cm));
+  document.getElementById("gauge").innerHTML = rows.map(r =>
+    `<button class="g-row" type="button" data-area="${r.a.id}" title="${esc(r.a.he)}">
+      <span class="g-name">${esc(r.a.name)}</span>
+      <span class="g-track"><span class="g-fill${r.official ? " official" : ""}" style="width:${(r.cm / max) * 100}%"></span></span>
+      <span class="g-val">${fmt(r.cm)} ס״מ</span></button>`).join("");
+}
+
+function renderFresh() {
+  const rows = AREAS.filter(a => state.wx[a.id]).map(a => ({ a, f: state.wx[a.id].fresh })).sort((x, y) => y.f - x.f);
+  const snowy = rows.filter(r => r.f >= 0.5);
+  document.getElementById("freshList").innerHTML = snowy.length
+    ? snowy.map(r => `<button class="chip" type="button" data-area="${r.a.id}">${esc(r.a.he)} <b>${fmt1(r.f)}</b> ס״מ</button>`).join("")
+    : `<span class="hint">לא ירד שלג באף אזור ב־24 השעות האחרונות.</span>`;
+  if (!window.L) { document.getElementById("map").hidden = true; return; }
+  if (!map) {
+    map = L.map("map", { scrollWheelZoom: false, attributionControl: true }).fitBounds(AREAS.map(a => [a.lat, a.lon]), { padding: [24, 24] });
+    L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+      maxZoom: 15, attribution: "© OpenStreetMap, SRTM | © OpenTopoMap",
+    }).addTo(map);
+  }
+  if (mapLayer) mapLayer.remove();
+  mapLayer = L.layerGroup().addTo(map);
+  const snow = getComputedStyle(document.documentElement).getPropertyValue("--snow").trim() || "#2563a8";
+  for (const r of rows) {
+    const radius = 7 + Math.sqrt(r.f) * 6;
+    L.circleMarker([r.a.lat, r.a.lon], {
+      radius, color: snow, weight: 2, fillColor: snow, fillOpacity: r.f >= 0.5 ? 0.55 : 0.08,
+    }).bindTooltip(r.f >= 0.5 ? `${fmt1(r.f)}` : "0", { permanent: true, direction: "center", className: "snow-label" })
+      .bindPopup(`<b>${esc(r.a.he)}</b><br>${fmt1(r.f)} ס״מ ב־24 שעות`)
+      .addTo(mapLayer);
+  }
+}
+
+function dayCell(d, label = "") {
+  const share = Math.min(1, d.snow / 20);
+  const bg = d.snow >= 0.5 ? `background: color-mix(in srgb, var(--snow) ${Math.round(10 + share * 45)}%, transparent)` : "";
+  return `<div class="day-cell" style="${bg}">${label ? `<span class="dn">${label}</span>` : ""}<span class="ic">${wmo(d.code)[1]}</span>
+    <span class="sn">${d.snow >= 0.5 ? fmt(d.snow) + " ס״מ" : ""}</span>
+    <span class="tt">${fmt(d.max)}° / ${fmt(d.min)}°</span></div>`;
+}
+
+function renderForecast() {
+  const first = AREAS.find(a => state.wx[a.id]);
+  if (!first) return;
+  const days = state.wx[first.id].days;
+  const head = `<thead><tr><th class="area">אזור</th>${days.map((d, i) => `<th>${dayName(d.t, i)}<br><span class="num">${dayDate(d.t)}</span></th>`).join("")}<th>סה״כ שלג</th></tr></thead>`;
+  const body = AREAS.filter(a => state.wx[a.id]).map(a => {
+    const w = state.wx[a.id];
+    return `<tr data-area="${a.id}"><td class="area">${esc(a.name)}</td>${w.days.map(d => `<td>${dayCell(d)}</td>`).join("")}<td><b class="num">${fmt(w.forecast)}</b> ס״מ</td></tr>`;
+  }).join("");
+  document.getElementById("fc").innerHTML = head + "<tbody>" + body + "</tbody>";
+}
+
+/* ---------- Detail window ---------- */
+function hourlyChart(hours) {
+  const W = 640, H = 170, L0 = 34, R0 = 30, T = 14, B = 26;
+  const pw = W - L0 - R0, ph = H - T - B;
+  const temps = hours.map(h => h.temp);
+  let tmin = Math.floor(Math.min(...temps, 0) / 5) * 5, tmax = Math.ceil(Math.max(...temps, 0) / 5) * 5;
+  if (tmax === tmin) tmax += 5;
+  const smax = Math.max(1, Math.ceil(Math.max(...hours.map(h => h.snow))));
+  const x = i => L0 + (i + .5) * (pw / hours.length);
+  const yt = t => T + ph - ((t - tmin) / (tmax - tmin)) * ph;
+  const bw = pw / hours.length * .7;
+  let g = "";
+  for (let t = tmin; t <= tmax; t += 5) g += `<line class="grid" x1="${L0}" x2="${W - R0}" y1="${yt(t)}" y2="${yt(t)}"/><text x="${L0 - 6}" y="${yt(t) + 4}" text-anchor="end">${t}°</text>`;
+  g += `<line class="zero" x1="${L0}" x2="${W - R0}" y1="${yt(0)}" y2="${yt(0)}"/>`;
+  g += `<text x="${W - R0 + 6}" y="${T + 8}">${smax}</text><text x="${W - R0 + 6}" y="${T + 20}">ס״מ</text>`;
+  const bars = hours.map((h, i) => h.snow > 0 ? `<rect class="bar" x="${x(i) - bw / 2}" y="${T + ph - (h.snow / smax) * ph}" width="${bw}" height="${(h.snow / smax) * ph}"><title>${h.t.slice(11)}: ${h.snow.toFixed(1)} ס״מ</title></rect>` : "").join("");
+  const line = `<polyline class="line" points="${hours.map((h, i) => `${x(i)},${yt(h.temp)}`).join(" ")}"/>`;
+  const ticks = hours.map((h, i) => (i % 6 === 0) ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${h.t.slice(11, 13)}:00</text>` : "").join("");
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="טמפרטורה ושלג ב־48 השעות הקרובות" direction="ltr">${g}${bars}${line}${ticks}</svg>`;
+}
+
+function renderDetailCam(id) {
+  const box = document.getElementById("d-cam"), tabs = document.getElementById("d-tabs");
+  if (!box) return;
+  const cams = state.cams[id] || [];
+  const i = Math.min(state.camPick[id] || 0, Math.max(0, cams.length - 1));
+  const cam = cams[i];
+  box.innerHTML = cam
+    ? `<img src="${esc(cam.img)}" alt="מצלמה חיה: ${esc(cam.title)}" data-cam="${id}" data-idx="${i}">`
+    : `<div class="empty">${state.cams[id] ? "לא נמצאה מצלמה פעילה באזור הזה" : "טוען מצלמה…"}</div>`;
+  tabs.innerHTML = cams.length > 1 ? cams.map((c, k) =>
+    `<button type="button" data-pick="${k}" aria-pressed="${k === i}">${esc(c.title)}${c.alt ? ` · ${Math.round(c.alt)} מ׳` : ""}</button>`).join("") : "";
+  // Panoramas open centred.
+  const img = box.querySelector("img");
+  if (img) img.addEventListener("load", () => { box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2 * (getComputedStyle(box).direction === "rtl" ? -1 : 1); }, { once: true });
+}
+
+function openDetail(id) {
+  const a = byId[id], w = state.wx[id], o = state.official[id];
+  const dlg = document.getElementById("detail");
+  if (!w) return;
+  const [cond, icon] = wmo(w.code);
+  const upd = o ? new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ }).format(new Date(o.upd)) : "";
+  dlg.innerHTML = `<div class="d-body">
+    <div class="d-head">
+      <div><h3 id="d-title">${esc(a.name)}</h3><div class="meta">${esc(a.he)} · נתוני מזג אוויר לגובה ${a.ele} מ׳</div></div>
+      <button type="button" id="d-close" aria-label="סגירה">✕ סגירה</button>
+    </div>
+    <div class="pano" id="d-cam"></div>
+    <div class="cam-tabs" id="d-tabs"></div>
+    <div class="d-figs">
+      <div class="fig"><div class="k">עכשיו</div><div class="v">${icon} <span class="num">${fmt(w.temp)}°</span></div><div class="s">${cond} · מרגיש כמו <span class="num">${fmt(w.feels)}°</span></div></div>
+      ${o ? `<div class="fig official"><div class="k">גובה שלג (מדידת האתר)</div><div class="v">${fmt(o.snow)} <small>ס״מ</small></div><div class="s">${esc(o.name)}${o.alt ? ` · ${Math.round(o.alt)} מ׳` : ""} · עודכן ${upd}${o.fresh >= 0 ? ` · שלג חדש ${fmt(o.fresh)} ס״מ` : ""}</div></div>` : ""}
+      <div class="fig snow"><div class="k">גובה שלג (הערכת מודל)</div><div class="v">${fmt(w.depth)} <small>ס״מ</small></div></div>
+      <div class="fig snow"><div class="k">שלג טרי ב־24 שעות</div><div class="v">${fmt1(w.fresh)} <small>ס״מ</small></div></div>
+      <div class="fig"><div class="k">רוח</div><div class="v">${fmt(w.wind)} <small>קמ״ש</small></div><div class="s">משבים עד ${fmt(w.gust)} קמ״ש</div></div>
+      <div class="fig"><div class="k">קו האפס</div><div class="v">${w.freezing != null ? Math.round(w.freezing / 50) * 50 : "—"} <small>מ׳</small></div><div class="s">מעל הגובה הזה יורד שלג ולא גשם</div></div>
+    </div>
+    <div><h2 style="font-size:1.1rem">7 הימים הקרובים</h2></div>
+    <div class="days">${w.days.map((d, i) => dayCell(d, dayName(d.t, i))).join("")}</div>
+    <div><h2 style="font-size:1.1rem">48 השעות הקרובות</h2><p class="hint">קו כתום: טמפרטורה. עמודות כחולות: שלג לשעה (ס״מ).</p></div>
+    ${hourlyChart(w.hours)}
+  </div>`;
+  renderDetailCam(id);
+  dlg.querySelector("#d-close").addEventListener("click", () => dlg.close());
+  dlg.querySelector("#d-tabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-pick]");
+    if (!b) return;
+    state.camPick[id] = +b.dataset.pick;
+    renderDetailCam(id);
+    const card = document.querySelector(`.cams .cam[data-area="${id}"]`);
+    if (card) card.outerHTML = camCard(a);
+  });
+  if (!dlg.open) dlg.showModal();
+}
+document.getElementById("detail").addEventListener("click", e => { if (e.target.id === "detail") e.target.close(); });
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-area]");
+  if (el && !el.closest("dialog")) openDetail(el.dataset.area);
 });
+
+function renderAll() { renderSummary(); renderCams(); renderGauge(); renderFresh(); renderForecast(); }
+
+async function load() {
+  const dot = document.getElementById("dot"), upd = document.getElementById("updated"), notice = document.getElementById("notice");
+  upd.textContent = "מעדכן…";
+  const camJobs = AREAS.map(a => loadCams(a).then(() => {
+    const card = document.querySelector(`.cams .cam[data-area="${a.id}"]`);
+    if (card) card.outerHTML = camCard(a);
+  }).catch(() => { state.cams[a.id] = state.cams[a.id] || []; }));
+  const officialJob = loadOfficial().catch(() => {});
+  try {
+    await loadWeather();
+    renderAll();
+    notice.hidden = true;
+    dot.className = "dot live";
+    const t = new Intl.DateTimeFormat("he-IL", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: TZ }).format(new Date());
+    upd.textContent = `חי · עודכן ${t} (שעון הדולומיטים)`;
+  } catch (e) {
+    dot.className = "dot err";
+    upd.textContent = "העדכון נכשל";
+    notice.hidden = false;
+    notice.textContent = `לא הצלחנו לטעון את נתוני מזג האוויר (${e.message}). בדקי את החיבור לאינטרנט ולחצי על רענון.`;
+  }
+  await officialJob;
+  if (Object.keys(state.wx).length) { renderSummary(); renderGauge(); }
+  await Promise.all(camJobs);
+  renderCams();
+}
+
+renderCams();
 document.getElementById("refresh").addEventListener("click", load);
 load();
 setInterval(load, REFRESH_MS);
