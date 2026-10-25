@@ -32,6 +32,8 @@ jobs:
           for c in it[:4]: print(json.dumps({k:c.get(k) for k in ['Shortname','SnowHeight','newSnowHeight','LastUpdate','LastSnowDate','GpsInfo','Detail']})[:500])
           "
       - name: Open-Meteo
-        run: curl -sS -D - -H "Origin: https://hamutaluziel.github.io" "https://api.open-meteo.com/v1/forecast?latitude=46.54&longitude=11.76&current=temperature_2m,snow_depth" | head -30
+        run: |
+          curl -sS -D - -H "Origin: https://hamutaluziel.github.io" "https://api.open-meteo.com/v1/forecast?latitude=46.54&longitude=11.76&current=temperature_2m,snow_depth" | head -30
       - name: Pages status
-        run: curl -sS -o /dev/null -w "%{http_code}\n" https://hamutaluziel.github.io/Hamutal/dolomiti/
+        run: |
+          curl -sS -o /dev/null -w "%{http_code}\n" https://hamutaluziel.github.io/Hamutal/dolomiti/
