@@ -6,34 +6,34 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Webcams near Val Gardena
+      - name: Dolomiti Superski webcams
         run: |
-          curl -sS -D - -H "Origin: https://hamutaluziel.github.io" "https://tourism.api.opendatahub.com/v1/WebcamInfo?active=true&latitude=46.548&longitude=11.74&radius=12000&pagesize=12&removenullvalues=true" -o cams.json | head -20
-          python3 -c "
-          import json;d=json.load(open('cams.json'));print(type(d).__name__, list(d)[:8] if isinstance(d,dict) else len(d))
-          it=d.get('Items',d) if isinstance(d,dict) else d
-          print('count',len(it))
-          for c in it[:6]: print(json.dumps({k:c.get(k) for k in ['Shortname','Source','Active','WebCamProperties','GpsInfo']})[:600]); print('  IMG', [ (i.get('ImageUrl'),i.get('Width')) for i in (c.get('ImageGallery') or [])][:5])
-          "
-      - name: Webcams without geo filter
-        run: |
-          curl -sS "https://tourism.api.opendatahub.com/v1/WebcamInfo?pagesize=5&removenullvalues=true" -o all.json
-          python3 -c "
-          import json;d=json.load(open('all.json'));print(type(d).__name__, {k:d[k] for k in d if k!='Items'} if isinstance(d,dict) else len(d))
-          it=d.get('Items',[]) if isinstance(d,dict) else d
-          for c in it[:5]: print(c.get('Shortname'), c.get('Source'), c.get('Active'), json.dumps(c.get('WebCamProperties'))[:300], [i.get('ImageUrl') for i in (c.get('ImageGallery') or [])][:3], json.dumps(c.get('GpsInfo'))[:200])
-          "
-      - name: Measuring points
-        run: |
-          curl -sS "https://tourism.api.opendatahub.com/v1/Weather/Measuringpoint?active=true&pagesize=300&removenullvalues=true" -o mp.json
-          python3 -c "
-          import json;d=json.load(open('mp.json'));print(type(d).__name__, len(d) if isinstance(d,list) else list(d)[:6])
-          it=d.get('Items',d) if isinstance(d,dict) else d
-          for c in it[:4]: print(json.dumps({k:c.get(k) for k in ['Shortname','SnowHeight','newSnowHeight','LastUpdate','LastSnowDate','GpsInfo','Detail']})[:500])
-          "
-      - name: Open-Meteo
-        run: |
-          curl -sS -D - -H "Origin: https://hamutaluziel.github.io" "https://api.open-meteo.com/v1/forecast?latitude=46.54&longitude=11.76&current=temperature_2m,snow_depth" | head -30
-      - name: Pages status
-        run: |
-          curl -sS -o /dev/null -w "%{http_code}\n" https://hamutaluziel.github.io/Hamutal/dolomiti/
+          curl -sS "https://tourism.api.opendatahub.com/v1/WebcamInfo?source=dss&active=true&pagesize=1000&removenullvalues=true" -o dss.json
+          cat > a.py <<'PY'
+          import json, math, urllib.request
+          d = json.load(open('dss.json'))
+          it = d.get('Items', d) if isinstance(d, dict) else d
+          print('total', d.get('TotalResults') if isinstance(d, dict) else len(it), 'items', len(it))
+          A = {'cortina':(46.54,12.11),'kronplatz':(46.738,11.958),'altabadia':(46.549,11.893),'gardena':(46.548,11.74),'fassa':(46.47,11.775),'arabba':(46.49,11.875),'3zinnen':(46.70,12.36),'fiemme':(46.36,11.54),'sanmartino':(46.262,11.802),'pusteria':(46.70,11.72),'lusia':(46.38,11.79),'civetta':(46.40,12.03)}
+          def km(a,b,c,d):
+              x=(d-b)*math.cos(math.radians((a+c)/2));y=c-a;return math.hypot(x,y)*111.2
+          by = {k: [] for k in A}
+          nogps = 0
+          for c in it:
+              g = (c.get('GpsInfo') or [{}])[0]
+              if not g.get('Latitude'): nogps += 1; continue
+              best = min(A, key=lambda k: km(*A[k], g['Latitude'], g['Longitude']))
+              by[best].append((round(km(*A[best], g['Latitude'], g['Longitude']),1), c.get('Shortname'), (c.get('WebCamProperties') or {}).get('WebcamUrl'), (c.get('Mapping') or {}), c.get('AreaIds')))
+          print('nogps', nogps)
+          for k, v in by.items():
+              print('==', k, len(v))
+              for r in sorted(v)[:8]: print('   ', r[0], r[1], r[2])
+          urls = [r[2] for v in by.values() for r in v[:2] if r[2]]
+          for u in urls[:30]:
+              try:
+                  q = urllib.request.Request(u, method='GET', headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(q, timeout=10) as r: print('IMG', r.status, r.headers.get('content-type'), r.headers.get('content-length'), u[:90])
+              except Exception as e: print('IMG ERR', e, u[:90])
+          print('SAMPLE', json.dumps(it[0])[:1500])
+          PY
+          python3 a.py
