@@ -66,7 +66,8 @@ h2 { font: 600 1.4rem/1.2 var(--font-body); margin: 0; }
 .sec-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
 
 .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 12px; }
-.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 2px; text-align: start; cursor: pointer; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 2px; text-align: start; font: inherit; color: inherit; }
+button.stat { cursor: pointer; }
 .stat .label { font-size: 13px; color: var(--muted); }
 .stat .value { font: 700 2rem/1.1 var(--font-body); font-variant-numeric: tabular-nums; }
 .stat .value small { font-size: 1rem; color: var(--muted); font-weight: 500; }
@@ -358,14 +359,20 @@ function renderSummary() {
   const ids = AREAS.map(a => a.id).filter(id => state.wx[id]);
   if (!ids.length) return;
   const best = (f, dir = 1) => ids.reduce((x, y) => (dir * f(y) > dir * f(x) ? y : x));
+  // A snow figure of zero everywhere reads as "none", not as a winner.
+  const cm = (f, round) => id => f(id) >= 0.5 ? `${round(f(id))} <small>ס״מ</small>` : null;
   const tiles = [
-    ["הכי הרבה שלג", best(id => depthOf(id).cm), id => `${fmt(depthOf(id).cm)} <small>ס״מ</small>`],
-    ["שלג טרי ב־24 שעות", best(id => state.wx[id].fresh), id => `${fmt1(state.wx[id].fresh)} <small>ס״מ</small>`],
-    ["הכי הרבה שלג צפוי השבוע", best(id => state.wx[id].forecast), id => `${fmt(state.wx[id].forecast)} <small>ס״מ</small>`],
+    ["הכי הרבה שלג", best(id => depthOf(id).cm), cm(id => depthOf(id).cm, fmt)],
+    ["שלג טרי ב־24 שעות", best(id => state.wx[id].fresh), cm(id => state.wx[id].fresh, fmt1)],
+    ["הכי הרבה שלג צפוי השבוע", best(id => state.wx[id].forecast), cm(id => state.wx[id].forecast, fmt)],
     ["הכי קר עכשיו", best(id => state.wx[id].temp, -1), id => `<span class="num">${fmt(state.wx[id].temp, 1)}°</span>`],
   ];
-  document.getElementById("summary").innerHTML = tiles.map(([label, id, v]) =>
-    `<button class="stat" type="button" data-area="${id}"><span class="label">${label}</span><span class="value">${v(id)}</span><span class="where">${esc(byId[id].he)}</span></button>`).join("");
+  document.getElementById("summary").innerHTML = tiles.map(([label, id, v]) => {
+    const val = v(id);
+    return val
+      ? `<button class="stat" type="button" data-area="${id}"><span class="label">${label}</span><span class="value">${val}</span><span class="where">${esc(byId[id].he)}</span></button>`
+      : `<div class="stat"><span class="label">${label}</span><span class="value">אין</span><span class="where">בשום אזור</span></div>`;
+  }).join("");
 }
 
 function camCard(a) {
