@@ -300,34 +300,31 @@ const items = j => Array.isArray(j) ? j : (j && Array.isArray(j.Items) ? j.Items
 const titleOf = o => o?.Detail?.de?.Title || o?.Detail?.it?.Title || o?.Detail?.en?.Title || o?.Shortname || "";
 const gpsOf = o => { const g = (o?.GpsInfo || [])[0]; return g && g.Latitude ? g : null; };
 
-// Pick the image that best fits a card: not a tiny thumbnail, not a 20,000px panorama original.
+// Webcam image address: the official Dolomiti Superski feed stores the live JPEG in WebcamUrl.
 function camImage(cam) {
-  const list = (cam.ImageGallery || []).filter(i => i && i.ImageUrl);
-  const isImg = u => /\.(jpe?g|png|webp)(\?|$)/i.test(u || "");
-  const cands = list.map(i => ({ url: i.ImageUrl, w: i.Width || 0, thumb: /thumb/i.test(i.ImageUrl) }));
   const wp = cam.WebCamProperties || {};
-  if (wp.PreviewUrl) cands.push({ url: wp.PreviewUrl, w: 0, thumb: false });
-  if (isImg(wp.WebcamUrl)) cands.push({ url: wp.WebcamUrl, w: 0, thumb: false });
-  if (!cands.length) return null;
-  const score = c => (c.thumb ? 5000 : 0) + (c.w ? Math.abs(c.w - 2400) / 10 : 120);
-  cands.sort((a, b) => score(a) - score(b));
-  return https(cands[0].url);
+  const cands = [wp.WebcamUrl, cam.Webcamurl, wp.PreviewUrl, ...(cam.ImageGallery || []).map(i => i && i.ImageUrl)];
+  const url = cands.find(u => u && !/webtv\/\?|\/$/.test(u));
+  return url ? https(url) : null;
 }
 
-async function loadCams(a) {
-  const p = new URLSearchParams({ active: "true", latitude: a.lat, longitude: a.lon, radius: "12000", pagesize: "12", removenullvalues: "true" });
+// One request for every official Dolomiti Superski webcam; each goes to its nearest ski area.
+async function loadCams() {
+  const p = new URLSearchParams({ source: "dss", active: "true", pagesize: "1000", removenullvalues: "true" });
   const res = await fetch(ODH + "WebcamInfo?" + p);
   if (!res.ok) throw new Error(res.status);
-  const seen = new Set(), out = [];
+  const per = Object.fromEntries(AREAS.map(a => [a.id, []]));
+  const seen = new Set();
   for (const c of items(await res.json())) {
-    const img = camImage(c);
-    if (!img || seen.has(img)) continue;
+    const g = gpsOf(c), img = camImage(c);
+    if (!g || !img || seen.has(img)) continue;
     seen.add(img);
-    const g = gpsOf(c);
-    out.push({ title: titleOf(c) || a.name, img, alt: g?.Altitude || null });
-    if (out.length >= 6) break;
+    let near = null, dist = Infinity;
+    for (const a of AREAS) { const d = km(a.lat, a.lon, g.Latitude, g.Longitude); if (d < dist) { dist = d; near = a; } }
+    if (dist > 25) continue;
+    per[near.id].push({ title: titleOf(c) || near.name, img, alt: g.Altitude || null, dist });
   }
-  state.cams[a.id] = out;
+  for (const a of AREAS) state.cams[a.id] = per[a.id].sort((x, y) => x.dist - y.dist).slice(0, 8);
 }
 
 async function loadOfficial() {
@@ -378,7 +375,7 @@ function camCard(a) {
   const cam = cams && cams[i];
   const media = cam
     ? `<img src="${esc(cam.img)}" alt="מצלמה חיה: ${esc(cam.title)}" loading="lazy" data-cam="${a.id}" data-idx="${i}">`
-    : `<div class="empty">${cams ? "לא נמצאה מצלמה פעילה באזור הזה" : "טוען מצלמה…"}</div>`;
+    : `<div class="empty">${state.camErr ? "המצלמות לא נטענו. בדקי את החיבור לאינטרנט ולחצי על רענון." : cams ? "לא נמצאה מצלמה פעילה באזור הזה" : "טוען מצלמה…"}</div>`;
   return `<button class="cam" type="button" data-area="${a.id}">${media}
     <div class="cap"><div><b>${esc(a.he)}</b><br><span>${esc(cam ? cam.title : a.name)}</span></div>
     ${wx ? `<div class="temp num">${wmo(wx.code)[1]} ${fmt(wx.temp)}°</div>` : ""}</div></button>`;
@@ -541,10 +538,11 @@ function renderAll() { renderSummary(); renderCams(); renderGauge(); renderFresh
 async function load() {
   const dot = document.getElementById("dot"), upd = document.getElementById("updated"), notice = document.getElementById("notice");
   upd.textContent = "מעדכן…";
-  const camJobs = AREAS.map(a => loadCams(a).then(() => {
-    const card = document.querySelector(`.cams .cam[data-area="${a.id}"]`);
-    if (card) card.outerHTML = camCard(a);
-  }).catch(() => { state.cams[a.id] = state.cams[a.id] || []; }));
+  const camJob = loadCams().then(() => { state.camErr = false; renderCams(); }).catch(() => {
+    state.camErr = !Object.keys(state.cams).length;
+    for (const a of AREAS) state.cams[a.id] = state.cams[a.id] || [];
+    renderCams();
+  });
   const officialJob = loadOfficial().catch(() => {});
   try {
     await loadWeather();
@@ -561,8 +559,7 @@ async function load() {
   }
   await officialJob;
   if (Object.keys(state.wx).length) { renderSummary(); renderGauge(); }
-  await Promise.all(camJobs);
-  renderCams();
+  await camJob;
 }
 
 renderCams();
