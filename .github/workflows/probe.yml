@@ -17,15 +17,17 @@ jobs:
           const T = async (p, f) => { try { return await f(); } catch (e) { return 'ERR ' + e.message.split('\n')[0]; } };
           (async () => {
             const b = await chromium.launch();
-            const urls = [['gh', 'https://raw.githack.com/hamutaluziel/Hamutal/main/dolomiti/index.html'], ['cdn', 'https://rawcdn.githack.com/hamutaluziel/Hamutal/main/dolomiti/index.html']];
+            const urls = [['gh', 'https://raw.githack.com/hamutaluziel/Hamutal/main/dolomiti/index.html'], ];
             for (const [tag, url] of urls) for (const [w, name] of [[1280, 'desk'], [400, 'phone']]) {
               const p = await b.newPage({ viewport: { width: w, height: 900 } });
               p.on('console', m => console.log(tag, 'console:', m.type(), m.text().slice(0, 200)));
               p.on('pageerror', e => console.log(tag, 'PAGEERROR', e.message));
               p.on('requestfailed', r => console.log(tag, 'REQFAIL', r.url().slice(0, 120), r.failure() && r.failure().errorText));
               const resp = await T(p, () => p.goto(url, { waitUntil: 'load', timeout: 45000 }));
+              await T(p, () => p.click('text=Open the page', { timeout: 8000 }));
+              await T(p, () => p.waitForSelector('#updated', { timeout: 20000 }));
               console.log(tag, name, 'status', resp && resp.status ? resp.status() : resp, 'final', p.url());
-              await p.waitForTimeout(10000);
+              await p.waitForTimeout(12000);
               console.log(tag, name, 'title', await p.title(), 'html', (await p.content()).slice(0, 300).replace(/\s+/g, ' '));
               console.log(tag, name, await T(p, () => p.textContent('#updated', { timeout: 2000 })),
                 'imgs', await T(p, () => p.locator('.cams img').count()),
