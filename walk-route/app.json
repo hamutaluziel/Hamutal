@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "מסלול הליכה",
+    "slug": "walk-route",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hamutal.walkroute",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "המיקום משמש לבניית מסלול מהמקום שלך ולמעקב אחרי ההליכה בזמן אמת."
+      }
+    },
+    "android": {
+      "package": "com.hamutal.walkroute",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "המיקום משמש לבניית מסלול מהמקום שלך ולמעקב אחרי ההליכה בזמן אמת."
+        }
+      ]
+    ],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
