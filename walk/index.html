@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>מסלול הליכה</title>
+<meta name="theme-color" content="#d9480f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="הליכה">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f4; --card: #ffffff; --line: #dfe3dd; --soft: #eceee9;
+    --fg: #1d2420; --muted: #5c665f; --accent: #d9480f; --accent-soft: #fde8dc;
+    --go: #2b8a3e; --bad: #c92a2a; --blue: #1971c2;
+    --ok-bg: #d3f9d8; --ahead-bg: #d0ebff; --behind-bg: #ffe3e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141815; --card: #1d221e; --line: #2f3631; --soft: #262c27;
+      --fg: #edf0ec; --muted: #9aa49c; --accent: #ff7a3d; --accent-soft: #3a2418;
+      --go: #40c057; --bad: #ff6b6b; --blue: #4dabf7;
+      --ok-bg: #1f3a24; --ahead-bg: #1b3247; --behind-bg: #452224; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--fg);
+    display: flex; flex-direction: column; font-size: 16px; -webkit-tap-highlight-color: transparent; }
+  #map { height: 42vh; min-height: 220px; flex: none; background: var(--soft); border-bottom: 1px solid var(--line); }
+  .leaflet-container { font-family: inherit; }
+  .busy { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 1000;
+    background: rgba(20,24,21,.88); color: #fff; padding: 8px 16px; border-radius: 20px; font-weight: 600; }
+  .tabs { display: flex; background: var(--card); border-bottom: 1px solid var(--line); flex: none; }
+  .tabs button { flex: 1; background: none; border: 0; border-bottom: 3px solid transparent; padding: 12px; font: inherit;
+    font-weight: 700; color: var(--muted); }
+  .tabs button.on { color: var(--accent); border-color: var(--accent); }
+  .tabs button:disabled { opacity: .4; }
+  main { flex: 1; overflow-y: auto; padding-block: 12px calc(32px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .stack { display: flex; flex-direction: column; gap: 10px; max-width: 560px; margin: 0 auto; }
+  label, .lbl { font-weight: 700; font-size: 15px; margin-top: 6px; display: block; }
+  .small { font-size: 13px; color: var(--muted); font-weight: 500; }
+  input { width: 100%; font: inherit; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); color: var(--fg); }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: 10px; align-items: flex-end; }
+  .row > * { flex: 1; min-width: 0; }
+  .row > .shrink { flex: none; }
+  .seg { display: flex; background: var(--soft); border-radius: 10px; padding: 3px; }
+  .seg button { flex: 1; border: 0; background: none; padding: 9px; border-radius: 8px; font: inherit; font-weight: 600; color: var(--muted); }
+  .seg button.on { background: var(--card); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .btn { border: 0; border-radius: 12px; padding: 14px; font: inherit; font-weight: 700; color: #fff; background: var(--accent); width: 100%; }
+  .btn.go { background: var(--go); } .btn.bad { background: var(--bad); }
+  .btn.sec { background: var(--soft); color: var(--fg); }
+  .btn:disabled { opacity: .55; }
+  .gps { border: 0; border-radius: 10px; padding: 12px 10px; background: var(--accent-soft); color: var(--accent); font: inherit; font-weight: 700; white-space: nowrap; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  .err { color: var(--bad); font-weight: 600; margin: 0; }
+  .note { color: #b35c00; font-size: 13px; margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { background: var(--soft); border-radius: 10px; padding: 8px 4px; text-align: center; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .stat span, .stat i { font-size: 12px; color: var(--muted); font-style: normal; }
+  .big { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .big div { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px; text-align: center; }
+  .big b { display: block; font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .bar { height: 10px; background: var(--soft); border-radius: 5px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .5s; }
+  .pace { border-radius: 12px; padding: 12px; font-weight: 700; }
+  .pace.ok { background: var(--ok-bg); } .pace.ahead { background: var(--ahead-bg); } .pace.behind { background: var(--behind-bg); }
+  .pin { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .me { width: 16px; height: 16px; border-radius: 50%; background: #1a73e8; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(26,115,232,.25); }
+  .confirm { display: flex; gap: 10px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="busy" id="busy" hidden></div>
+<nav class="tabs">
+  <button id="tabPlan" class="on">תכנון מסלול</button>
+  <button id="tabWalk" disabled>הליכה</button>
+</nav>
+<main>
+  <section id="plan" class="stack">
+    <div class="seg" id="modeSeg">
+      <button data-v="loop" class="on">מסלול מעגלי</button>
+      <button data-v="ab">מכתובת לכתובת</button>
+    </div>
+
+    <label for="startIn" id="startLbl">נקודת התחלה וסיום</label>
+    <div class="row">
+      <input id="startIn" placeholder="רחוב, מספר, עיר" autocomplete="street-address">
+      <button class="gps shrink" id="gpsBtn">📍 המיקום שלי</button>
+    </div>
+
+    <div id="endWrap" hidden>
+      <label for="endIn">כתובת סיום</label>
+      <input id="endIn" placeholder="רחוב, מספר, עיר" autocomplete="street-address">
+    </div>
+
+    <span class="lbl">אורך ההליכה</span>
+    <div class="seg" id="targetSeg">
+      <button data-v="km" class="on">לפי ק"מ</button>
+      <button data-v="min">לפי זמן</button>
+    </div>
+    <div class="row">
+      <div id="kmWrap"><label class="small" for="kmIn">ק"מ</label><input id="kmIn" inputmode="decimal" value="5"></div>
+      <div id="minWrap" hidden><label class="small" for="minIn">דקות</label><input id="minIn" inputmode="numeric" value="45"></div>
+      <div><label class="small" for="speedIn">מהירות ממוצעת (קמ"ש)</label><input id="speedIn" inputmode="decimal" value="6"></div>
+    </div>
+    <p class="hint" id="estHint"></p>
+    <p class="err" id="planErr" hidden></p>
+    <button class="btn" id="buildBtn">בניית מסלול</button>
+
+    <div class="card" id="routeCard" hidden>
+      <div class="stats">
+        <div class="stat"><span>מרחק</span><b id="rDist"></b><i>ק"מ</i></div>
+        <div class="stat"><span>זמן משוער</span><b id="rTime"></b><i>שעות:דקות</i></div>
+        <div class="stat"><span>קצב</span><b id="rPace"></b><i>דק׳/ק"מ</i></div>
+      </div>
+      <p class="note" id="rNote" hidden></p>
+      <div class="row">
+        <button class="btn sec" id="againBtn">🔀 מסלול אחר</button>
+        <a class="btn sec" id="gmLink" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">🗺️ גוגל מפות</a>
+      </div>
+      <button class="btn go" id="startWalkBtn">▶ התחלת הליכה</button>
+    </div>
+  </section>
+
+  <section id="walk" class="stack" hidden>
+    <div class="big">
+      <div><b id="wTime">0:00</b><span class="small">זמן</span></div>
+      <div><b id="wDist">0.00</b><span class="small">ק"מ</span></div>
+    </div>
+    <div class="bar"><div id="wBar"></div></div>
+    <p class="hint" id="wRemain"></p>
+    <div class="pace" id="wPace" hidden></div>
+    <p class="err" id="wOff" hidden></p>
+    <div class="stats">
+      <div class="stat"><span>מהירות עכשיו</span><b id="wCur">—</b><i>קמ"ש</i></div>
+      <div class="stat"><span>מהירות ממוצעת</span><b id="wAvg">—</b><i>קמ"ש</i></div>
+      <div class="stat"><span>יעד</span><b id="wTgt">—</b><i>קמ"ש</i></div>
+      <div class="stat"><span>קצב נוכחי</span><b id="wCurP">—</b><i>דק׳/ק"מ</i></div>
+      <div class="stat"><span>קצב ממוצע</span><b id="wAvgP">—</b><i>דק׳/ק"מ</i></div>
+      <div class="stat"><span>קצב יעד</span><b id="wTgtP">—</b><i>דק׳/ק"מ</i></div>
+    </div>
+    <button class="btn go" id="wStart">▶ התחלת הליכה</button>
+    <div class="row" id="wRunning" hidden>
+      <button class="btn sec" id="wPause">⏸ השהיה</button>
+      <button class="btn bad" id="wStop">⏹ סיום</button>
+    </div>
+    <div class="confirm" id="wConfirm" hidden>
+      <button class="btn bad" id="wStopYes">כן, לסיים</button>
+      <button class="btn sec" id="wStopNo">להמשיך ללכת</button>
+    </div>
+    <a class="btn sec" id="gmLink2" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">🗺️ ניווט בגוגל מפות</a>
+    <p class="hint">חשוב: להשאיר את הדף פתוח על המסך בזמן ההליכה. אם נועלים את הטלפון או עוברים לאפליקציה אחרת, המעקב נעצר.</p>
+  </section>
+</main>
+
+<script>
+'use strict';
+// ================= Geo helpers =================
+const R = 6371000, rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+function dist(a, b) {
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+function bearing(a, b) {
+  const y = Math.sin(rad(b.lon - a.lon)) * Math.cos(rad(b.lat));
+  const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lon - a.lon));
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+function dest(p, brg, m) {
+  const d = m / R, b = rad(brg), la1 = rad(p.lat), lo1 = rad(p.lon);
+  const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+  const lo2 = lo1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return { lat: deg(la2), lon: ((deg(lo2) + 540) % 360) - 180 };
+}
+function decode(str, precision = 6) {
+  const f = 10 ** precision, out = []; let i = 0, lat = 0, lon = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let shift = 0, res = 0, byte;
+      do { byte = str.charCodeAt(i++) - 63; res |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+      const delta = res & 1 ? ~(res >> 1) : res >> 1;
+      if (k === 0) lat += delta; else lon += delta;
+    }
+    out.push({ lat: lat / f, lon: lon / f });
+  }
+  return out;
+}
+function cumulative(path) { const c = [0]; for (let i = 1; i < path.length; i++) c.push(c[i - 1] + dist(path[i - 1], path[i])); return c; }
+function project(p, path, cum, from = 0, to = Infinity) {
+  let best = { along: 0, off: Infinity };
+  const kx = Math.cos(rad(p.lat)) * 111320, ky = 110540;
+  for (let i = 0; i < path.length - 1; i++) {
+    if (cum[i + 1] < from || cum[i] > to) continue;
+    const ax = (path[i].lon - p.lon) * kx, ay = (path[i].lat - p.lat) * ky;
+    const bx = (path[i + 1].lon - p.lon) * kx, by = (path[i + 1].lat - p.lat) * ky;
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+    const off = Math.hypot(ax + t * dx, ay + t * dy);
+    if (off < best.off) best = { along: cum[i] + t * (cum[i + 1] - cum[i]), off };
+  }
+  return best;
+}
+function fmtDur(sec) {
+  const s = Math.max(0, Math.round(sec)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
+}
+function fmtHM(sec) { const m = Math.round(sec / 60); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; }
+const fmtPace = kmh => (!isFinite(kmh) || kmh <= 0.3) ? '—' : fmtDur(3600 / kmh);
+
+// ================= Services (free, OpenStreetMap based) =================
+const VALHALLA = 'https://valhalla1.openstreetmap.de/route';
+const NOMINATIM = 'https://nominatim.openstreetmap.org';
+
+async function geocode(q) {
+  q = q.trim();
+  if (!q) throw new Error('נא להזין כתובת');
+  const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m) return { lat: +m[1], lon: +m[2], label: q };
+  let data;
+  try {
+    const r = await fetch(`${NOMINATIM}/search?format=json&limit=1&accept-language=he&q=${encodeURIComponent(q)}`);
+    data = await r.json();
+  } catch { throw new Error('אין חיבור לשירות הכתובות. בדקו את החיבור לאינטרנט'); }
+  if (!data || !data.length) throw new Error(`לא נמצאה הכתובת "${q}". כדאי להוסיף שם עיר`);
+  return { lat: +data[0].lat, lon: +data[0].lon, label: q };
+}
+async function reverseGeocode(p) {
+  try {
+    const r = await fetch(`${NOMINATIM}/reverse?format=json&zoom=18&accept-language=he&lat=${p.lat}&lon=${p.lon}`);
+    const a = (await r.json()).address || {};
+    const street = [a.road, a.house_number].filter(Boolean).join(' ');
+    const city = a.city || a.town || a.village || a.suburb || '';
+    const label = [street, city].filter(Boolean).join(', ');
+    if (label) return label;
+  } catch {}
+  return `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+}
+function here() {
+  return new Promise((res, rej) => {
+    if (!navigator.geolocation) return rej(new Error('הדפדפן לא תומך במיקום'));
+    navigator.geolocation.getCurrentPosition(
+      p => res({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      e => rej(new Error(e.code === 1 ? 'אין הרשאת מיקום. צריך לאשר גישה למיקום בהגדרות הדפדפן' : 'לא הצלחתי לאתר מיקום. נסו שוב בחוץ')),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+  });
+}
+
+async function walkThrough(points) {
+  const body = {
+    locations: points.map((p, i) => ({ lat: p.lat, lon: p.lon, type: i === 0 || i === points.length - 1 ? 'break' : 'through' })),
+    costing: 'pedestrian', units: 'kilometers', directions_type: 'none',
+  };
+  let r, data;
+  try {
+    r = await fetch(VALHALLA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    data = await r.json();
+  } catch { throw new Error('שירות המסלולים לא זמין כרגע. נסו שוב בעוד רגע'); }
+  if (!r.ok || !data.trip) throw new Error(data && data.error ? `לא נמצא מסלול הליכה: ${data.error}` : 'שירות המסלולים לא זמין כרגע');
+  const path = [];
+  for (const leg of data.trip.legs) { const pts = decode(leg.shape); path.push(...(path.length ? pts.slice(1) : pts)); }
+  return { path, lengthM: data.trip.summary.length * 1000 };
+}
+
+const TOL = 0.05, TRIES = 6;
+async function fitLength(target, scale, build) {
+  let best = null, lastErr;
+  for (let i = 0; i < TRIES; i++) {
+    const pts = build(scale);
+    try {
+      const leg = await walkThrough(pts);
+      const err = Math.abs(leg.lengthM - target) / target;
+      if (!best || err < best.err) best = { leg, via: pts.slice(1, -1), err };
+      if (err <= TOL) break;
+      scale *= Math.pow(target / Math.max(leg.lengthM, 1), 0.9);
+    } catch (e) { lastErr = e; scale *= 0.85; }
+  }
+  if (!best) throw lastErr || new Error('לא הצלחתי לבנות מסלול');
+  return best;
+}
+async function buildLoop(start, target, seed = Math.random()) {
+  const heading = seed * 360, n = 4;
+  const build = r => {
+    const c = dest(start, heading, r), back = (heading + 180) % 360, pts = [start];
+    for (let k = 1; k <= n; k++) pts.push(dest(c, back + 360 * k / (n + 1), r));
+    pts.push(start); return pts;
+  };
+  const { leg, via } = await fitLength(target, target / (2 * Math.PI * 1.25), build);
+  return finish(leg, via, start, start, true, target);
+}
+async function buildAtoB(start, end, target, seed = Math.random()) {
+  const d = dist(start, end);
+  if (d < 150) { const r = await buildLoop(start, target, seed); return { ...r, end, loop: false }; }
+  const direct = await walkThrough([start, end]);
+  if (direct.lengthM >= target * (1 - TOL)) {
+    const note = direct.lengthM > target * (1 + TOL)
+      ? `הדרך הקצרה ביותר בין הכתובות היא ${(direct.lengthM / 1000).toFixed(1)} ק"מ, יותר מהיעד שהגדרת` : null;
+    return finish(direct, [], start, end, false, target, note);
+  }
+  const f = direct.lengthM / d, third = d / 3, b = bearing(start, end), side = seed < 0.5 ? 90 : -90;
+  const build = S => {
+    const h = Math.sqrt(Math.max(((S - third) / 2) ** 2 - third ** 2, 60 ** 2));
+    return [start, dest(dest(start, b, third), b + side, h), dest(dest(start, b, 2 * third), b + side, h), end];
+  };
+  const { leg, via } = await fitLength(target, target / f, build);
+  return finish(leg, via, start, end, false, target);
+}
+function finish(leg, via, start, end, loop, target, note) {
+  const raw = cumulative(leg.path), last = raw[raw.length - 1];
+  const lengthM = leg.lengthM || last, k = last > 0 ? lengthM / last : 1;
+  const cum = raw.map(c => c * k);
+  if (!note && Math.abs(lengthM - target) / target > 0.12)
+    note = `לא נמצא מסלול באורך המדויק. זה הכי קרוב (${(lengthM / 1000).toFixed(1)} ק"מ). אפשר ללחוץ "מסלול אחר"`;
+  return { path: leg.path, cum, lengthM, via, start, end, loop, note };
+}
+function gmUrl(route) {
+  const fmt = p => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`, wps = [];
+  for (let k = 1; k <= 3; k++) {
+    const i = route.cum.findIndex(c => c >= route.lengthM * k / 4);
+    if (i > 0 && i < route.path.length - 1) wps.push(route.path[i]);
+  }
+  const q = { api: '1', origin: fmt(route.start), destination: fmt(route.end), travelmode: 'walking', waypoints: wps.map(fmt).join('|') };
+  return 'https://www.google.com/maps/dir/?' + Object.entries(q).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+// ================= Map =================
+const map = L.map('map', { zoomControl: false }).setView([32.08, 34.78], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+const pin = c => L.divIcon({ className: '', html: `<div class="pin" style="background:${c}"></div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+const ll = p => [p.lat, p.lon];
+let routeLine, doneLine, startM, endM, meM;
+function drawRoute(route) {
+  [routeLine, doneLine, startM, endM].forEach(x => x && map.removeLayer(x));
+  routeLine = doneLine = endM = null;
+  routeLine = L.polyline(route.path.map(ll), { color: '#d9480f', weight: 6, opacity: .9 }).addTo(map);
+  startM = L.marker(ll(route.start), { icon: pin('#2b8a3e') }).addTo(map);
+  if (!route.loop && dist(route.start, route.end) > 30) endM = L.marker(ll(route.end), { icon: pin('#c92a2a') }).addTo(map);
+  map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+}
+function showStart(p) {
+  if (startM) map.removeLayer(startM);
+  startM = L.marker(ll(p), { icon: pin('#2b8a3e') }).addTo(map);
+  map.setView(ll(p), 15);
+}
+function drawUser(p, follow) {
+  if (!meM) meM = L.marker(ll(p), { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [22, 22], iconAnchor: [11, 11] }), zIndexOffset: 1000 }).addTo(map);
+  else meM.setLatLng(ll(p));
+  if (follow) map.panTo(ll(p));
+}
+function drawDone(route, along) {
+  if (doneLine) map.removeLayer(doneLine);
+  const i = route.cum.findIndex(c => c > along);
+  const pts = route.path.slice(0, i < 0 ? route.path.length : i);
+  doneLine = pts.length > 1 ? L.polyline(pts.map(ll), { color: '#868e96', weight: 6, opacity: .9 }).addTo(map) : null;
+}
+
+// ================= UI state =================
+const $ = id => document.getElementById(id);
+const num = el => parseFloat(el.value.replace(',', '.'));
+const state = { mode: 'loop', target: 'km', gpsPlace: null, route: null };
+const SKEY = 'walk-settings-v1';
+try {
+  const s = JSON.parse(localStorage.getItem(SKEY) || '{}');
+  if (s.speed) $('speedIn').value = s.speed;
+  if (s.km) $('kmIn').value = s.km;
+  if (s.min) $('minIn').value = s.min;
+  if (s.mode) state.mode = s.mode;
+  if (s.target) state.target = s.target;
+} catch {}
+function save() {
+  try { localStorage.setItem(SKEY, JSON.stringify({ speed: $('speedIn').value, km: $('kmIn').value, min: $('minIn').value, mode: state.mode, target: state.target })); } catch {}
+}
+function seg(id, key, onChange) {
+  const el = $(id);
+  const paint = () => el.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === state[key]));
+  el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state[key] = b.dataset.v; paint(); onChange(); save(); });
+  paint();
+}
+function refreshForm() {
+  $('endWrap').hidden = state.mode !== 'ab';
+  $('startLbl').textContent = state.mode === 'loop' ? 'נקודת התחלה וסיום' : 'כתובת התחלה';
+  $('kmWrap').hidden = state.target !== 'km';
+  $('minWrap').hidden = state.target !== 'min';
+  const sp = num($('speedIn')), km = targetKm();
+  $('estHint').textContent = state.target === 'km'
+    ? `זמן משוער: ${sp > 0 && km > 0 ? fmtDur(km / sp * 3600) : '—'} · קצב ${fmtPace(sp)} דק׳/ק"מ`
+    : `אורך משוער: ${km > 0 ? km.toFixed(1) : '—'} ק"מ · קצב ${fmtPace(sp)} דק׳/ק"מ`;
+}
+const targetKm = () => state.target === 'km' ? num($('kmIn')) : num($('speedIn')) * num($('minIn')) / 60;
+seg('modeSeg', 'mode', refreshForm);
+seg('targetSeg', 'target', refreshForm);
+['kmIn', 'minIn', 'speedIn'].forEach(id => $(id).addEventListener('input', () => { refreshForm(); save(); }));
+refreshForm();
+
+function busy(text) { $('busy').hidden = !text; $('busy').textContent = text || ''; }
+function planErr(text) { $('planErr').hidden = !text; $('planErr').textContent = text || ''; }
+
+function setTab(t) {
+  $('plan').hidden = t !== 'plan'; $('walk').hidden = t !== 'walk';
+  $('tabPlan').classList.toggle('on', t === 'plan'); $('tabWalk').classList.toggle('on', t === 'walk');
+  document.querySelector('main').scrollTop = 0;
+  setTimeout(() => map.invalidateSize(), 50);
+}
+$('tabPlan').onclick = () => setTab('plan');
+$('tabWalk').onclick = () => setTab('walk');
+
+$('gpsBtn').onclick = async () => {
+  planErr(); busy('מאתר מיקום…');
+  try {
+    const p = await here(); const label = await reverseGeocode(p);
+    state.gpsPlace = { ...p, label }; $('startIn').value = label; showStart(p);
+  } catch (e) { planErr(e.message); } finally { busy(); }
+};
+
+async function build() {
+  planErr();
+  const sp = num($('speedIn')), km = targetKm();
+  if (!(sp > 1 && sp < 15)) return planErr('נא להזין מהירות ממוצעת בין 1 ל-15 קמ"ש');
+  if (!(km >= 0.5 && km <= 50)) return planErr('אורך המסלול צריך להיות בין 0.5 ל-50 ק"מ');
+  if (state.mode === 'ab' && !$('endIn').value.trim()) return planErr('נא להזין כתובת סיום');
+  busy('בונה מסלול…'); $('buildBtn').disabled = $('againBtn').disabled = true;
+  try {
+    const a = state.gpsPlace && state.gpsPlace.label === $('startIn').value ? state.gpsPlace : await geocode($('startIn').value);
+    const r = state.mode === 'loop' ? await buildLoop(a, km * 1000) : await buildAtoB(a, await geocode($('endIn').value), km * 1000);
+    if (walk.running) stopWalk();
+    state.route = r; walk.reset();
+    drawRoute(r); showRoute();
+  } catch (e) { planErr(e.message); } finally { busy(); $('buildBtn').disabled = $('againBtn').disabled = false; }
+}
+function showRoute() {
+  const r = state.route, sp = num($('speedIn'));
+  $('routeCard').hidden = false; $('tabWalk').disabled = false;
+  $('buildBtn').textContent = 'בניית מסלול חדש';
+  $('rDist').textContent = (r.lengthM / 1000).toFixed(2);
+  $('rTime').textContent = fmtHM(r.lengthM / 1000 / sp * 3600);
+  $('rPace').textContent = fmtPace(sp);
+  $('rNote').hidden = !r.note; $('rNote').textContent = r.note || '';
+  $('gmLink').href = $('gmLink2').href = gmUrl(r);
+}
+$('buildBtn').onclick = build;
+$('againBtn').onclick = build;
+$('startWalkBtn').onclick = () => { setTab('walk'); startWalk(); };
+
+// ================= Live tracking =================
+const walk = {
+  running: false, paused: false, movingMs: 0, lastTick: 0, walkedM: 0, alongM: 0, last: null, recent: [], user: null, off: 0,
+  watchId: null, timer: null, lock: null,
+  reset() { Object.assign(this, { paused: false, movingMs: 0, walkedM: 0, alongM: 0, last: null, recent: [], off: 0 }); render(); },
+};
+async function keepAwake() {
+  try { if ('wakeLock' in navigator) walk.lock = await navigator.wakeLock.request('screen'); } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (walk.running && document.visibilityState === 'visible') keepAwake(); });
+
+function startWalk() {
+  if (!state.route) return;
+  if (!navigator.geolocation) { $('wRemain').textContent = 'הדפדפן לא תומך במיקום'; return; }
+  walk.reset(); walk.running = true; walk.lastTick = Date.now();
+  keepAwake();
+  walk.watchId = navigator.geolocation.watchPosition(onPos, e => {
+    $('wOff').hidden = false;
+    $('wOff').textContent = e.code === 1 ? 'אין הרשאת מיקום. צריך לאשר גישה למיקום בהגדרות הדפדפן' : 'מחפש אות GPS…';
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  walk.timer = setInterval(() => {
+    const now = Date.now();
+    if (!walk.paused) walk.movingMs += now - walk.lastTick;
+    walk.lastTick = now; render();
+  }, 1000);
+  render();
+}
+function stopWalk() {
+  if (walk.watchId != null) navigator.geolocation.clearWatch(walk.watchId);
+  clearInterval(walk.timer); walk.watchId = walk.timer = null;
+  try { walk.lock && walk.lock.release(); } catch {}
+  walk.lock = null; walk.running = false; walk.paused = false; render();
+}
+function onPos(pos) {
+  const p = { lat: pos.coords.latitude, lon: pos.coords.longitude }, acc = pos.coords.accuracy || 999;
+  walk.user = p;
+  if (walk.running && !walk.paused && acc <= 35) {
+    if (walk.last) {
+      const step = dist(walk.last, p);
+      if (step >= 3 && step < 100) { walk.walkedM += step; walk.last = p; }
+      else if (step >= 100) walk.last = p;
+    } else walk.last = p;
+    const now = Date.now();
+    walk.recent.push({ t: now, d: walk.walkedM });
+    while (walk.recent.length > 2 && now - walk.recent[0].t > 30000) walk.recent.shift();
+    const r = state.route;
+    let pr = project(p, r.path, r.cum, walk.alongM - 60, walk.alongM + 500);
+    if (pr.off > 40) pr = project(p, r.path, r.cum);
+    walk.off = pr.off;
+    if (pr.off <= 40) walk.alongM = Math.max(walk.alongM, pr.along);
+    drawDone(r, walk.alongM);
+  }
+  $('wOff').hidden = true;
+  drawUser(p, walk.running && !$('walk').hidden);
+  render();
+}
+$('wStart').onclick = startWalk;
+$('wPause').onclick = () => {
+  walk.paused = !walk.paused; walk.last = null; walk.recent = [];
+  render();
+};
+$('wStop').onclick = () => { $('wRunning').hidden = true; $('wConfirm').hidden = false; };
+$('wStopNo').onclick = () => { $('wConfirm').hidden = true; render(); };
+$('wStopYes').onclick = () => { $('wConfirm').hidden = true; stopWalk(); };
+
+function render() {
+  const r = state.route; if (!r) return;
+  const sp = num($('speedIn')), el = walk.movingMs / 1000;
+  let cur = 0;
+  if (walk.recent.length > 1) {
+    const a = walk.recent[0], b = walk.recent[walk.recent.length - 1], dt = (b.t - a.t) / 1000;
+    if (dt > 5) cur = (b.d - a.d) / dt * 3.6;
+  }
+  const avg = el > 10 ? walk.walkedM / el * 3.6 : 0;
+  const remain = Math.max(0, r.lengthM - walk.alongM);
+  const finished = walk.alongM >= r.lengthM - 30;
+  const ahead = walk.alongM - Math.min(sp / 3.6 * el, r.lengthM);
+  $('wTime').textContent = fmtDur(el);
+  $('wDist').textContent = (walk.walkedM / 1000).toFixed(2);
+  $('wBar').style.width = Math.min(100, walk.alongM / r.lengthM * 100) + '%';
+  $('wRemain').textContent = finished ? '🎉 הגעת ליעד!' : `נותרו ${(remain / 1000).toFixed(2)} ק"מ, עוד כ-${fmtDur(remain / 1000 / sp * 3600)} בקצב היעד`;
+  const pace = $('wPace');
+  pace.hidden = !(walk.running && el > 20 && !finished);
+  if (!pace.hidden) {
+    const sec = Math.abs(ahead) / 1000 / sp * 3600;
+    if (Math.abs(ahead) < 30) { pace.className = 'pace ok'; pace.textContent = '✅ בדיוק בקצב'; }
+    else if (ahead > 0) { pace.className = 'pace ahead'; pace.textContent = `⚡ לפני הקצב ב-${Math.round(ahead)} מ׳ (${fmtDur(sec)})`; }
+    else { pace.className = 'pace behind'; pace.textContent = `🐢 מאחורי הקצב ב-${Math.round(-ahead)} מ׳ (${fmtDur(sec)}). כדאי להגביר`; }
+  }
+  if (walk.running && walk.off > 40) { $('wOff').hidden = false; $('wOff').textContent = `⚠️ סטייה מהמסלול (${Math.round(walk.off)} מ׳)`; }
+  $('wCur').textContent = cur ? cur.toFixed(1) : '—';
+  $('wAvg').textContent = avg ? avg.toFixed(1) : '—';
+  $('wTgt').textContent = sp.toFixed(1);
+  $('wCurP').textContent = fmtPace(cur); $('wAvgP').textContent = fmtPace(avg); $('wTgtP').textContent = fmtPace(sp);
+  $('wStart').hidden = walk.running;
+  $('wStart').textContent = walk.movingMs > 0 ? '▶ הליכה חדשה' : '▶ התחלת הליכה';
+  if ($('wConfirm').hidden) $('wRunning').hidden = !walk.running;
+  $('wPause').textContent = walk.paused ? '▶ המשך' : '⏸ השהיה';
+}
+</script>
+</body>
+</html>
