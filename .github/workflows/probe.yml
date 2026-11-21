@@ -3,18 +3,34 @@ on:
   push:
     branches: [claude/probe]
 permissions:
-  pages: write
-  id-token: write
-  contents: read
+  contents: write
 jobs:
-  enable:
+  probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Try enabling Pages with workflow token
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - name: Pages status
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api repos/${{ github.repository }}/pages || true
+      - uses: actions/checkout@v4
+      - name: Screenshot Pages site
+        run: |
+          npm i -s playwright@1.48.2 >/dev/null 2>&1 && npx playwright install --with-deps chromium >/dev/null 2>&1
+          cat > shot.js <<'JS'
+          const { chromium, devices } = require('playwright');
+          (async () => {
+            const b = await chromium.launch();
+            const p = await b.newPage({ ...devices['iPhone 13'] });
+            p.on('pageerror', e => console.log('PAGEERROR', e.message));
+            const r = await p.goto('https://hamutaluziel.github.io/Hamutal/', { waitUntil: 'load', timeout: 45000 });
+            console.log('status', r.status(), 'type', r.headers()['content-type'], 'url', p.url());
+            await p.waitForTimeout(12000);
+            console.log('title', await p.title());
+            console.log('imgs', await p.$$eval('img', a => a.length + ' loaded ' + a.filter(i => i.complete && i.naturalWidth > 0).length));
+            console.log('text', (await p.innerText('body')).slice(0, 600).replace(/\s+/g, ' '));
+            await p.screenshot({ path: 'shot-pages.png' });
+            await b.close();
+          })();
+          JS
+          node shot.js
+      - name: Save screenshot
+        run: |
+          mkdir -p probe-shots && mv shot-*.png probe-shots/
+          git config user.name probe && git config user.email probe@users.noreply.github.com
+          git add probe-shots && git commit -m "probe screenshots" && git push
