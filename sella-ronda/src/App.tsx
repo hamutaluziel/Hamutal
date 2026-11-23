@@ -113,7 +113,7 @@ const PLACES: Place[] = [
     },
     // Dolomite passes
     {
-        id: 'passosella', name: 'Passo Sella', valley: 'Dolomite Passes', kind: 'pass', elevation: 2218, lat: 46.5094, lon: 11.7708,
+        id: 'passosella', name: 'Passo Sella', valley: 'Dolomite Passes', kind: 'pass', elevation: 2218, lat: 46.5086, lon: 11.7628,
         cams: [
             { title: 'Passo Sella', img: 'https://api.scenaridigitali.com/media/sassolungo/image.jpg', page: `${VG}/passo-sella-webcam/` },
         ],
@@ -128,13 +128,25 @@ const PLACES: Place[] = [
     {
         id: 'campitello', name: 'Campitello di Fassa', valley: 'Val di Fassa', kind: 'village', elevation: 1448, lat: 46.4766, lon: 11.7407,
         cams: [
-            { title: 'Col Rodella', page: 'https://colrodella.panomax.com' },
+            { title: 'Campitello and Col Rodella', page: 'https://www.fassa.com/en/webcam/canazei-belvedere-col-rodella-passo-pordoi/webcam-campitello-col-rodella' },
+        ],
+    },
+    {
+        id: 'colrodella', name: 'Col Rodella', valley: 'Val di Fassa', kind: 'lift', elevation: 2395, lat: 46.4956, lon: 11.7481,
+        cams: [
+            { title: 'Col Rodella (360)', page: 'https://colrodella.panomax.com' },
         ],
     },
     {
         id: 'canazei', name: 'Canazei', valley: 'Val di Fassa', kind: 'village', elevation: 1460, lat: 46.4769, lon: 11.7709,
         cams: [
             { title: 'Val di Fassa webcams', page: 'https://www.fassa.com/en/webcam' },
+        ],
+    },
+    {
+        id: 'belvedere', name: 'Belvedere · Col dei Rossi', valley: 'Val di Fassa', kind: 'lift', elevation: 2382, lat: 46.4810, lon: 11.7930,
+        cams: [
+            { title: 'Belvedere, Col dei Rossi', page: 'https://www.fassa.com/en/webcam/canazei-belvedere-col-rodella-passo-pordoi/webcam-canazei-belvedere-col-dei-rossi' },
         ],
     },
     {
@@ -188,7 +200,18 @@ const PLACES: Place[] = [
             { title: 'Bec de Roces', img: `${FER}/35/6371.jpeg`, page: ARABBA },
             { title: 'Monte Burz', img: `${FER}/35/6372.jpeg`, page: ARABBA },
             { title: 'Passo Padon', img: `${FER}/35/6374.jpeg`, page: ARABBA },
-            { title: 'Porta Vescovo', page: 'https://portavescovo.panomax.com' },
+        ],
+    },
+    {
+        id: 'portavescovo', name: 'Porta Vescovo', valley: 'Arabba–Marmolada', kind: 'lift', elevation: 2478, lat: 46.4732, lon: 11.8675,
+        cams: [
+            { title: 'Porta Vescovo (360)', page: 'https://portavescovo.panomax.com' },
+        ],
+    },
+    {
+        id: 'campolongo', name: 'Passo Campolongo', valley: 'Dolomite Passes', kind: 'pass', elevation: 1875, lat: 46.5200, lon: 11.8742,
+        cams: [
+            { title: 'Arabba and Campolongo webcams', page: ARABBA },
         ],
     },
 ];
@@ -261,7 +284,8 @@ const timeFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-d
 const wxUrl = (): string => {
     const lats = PLACES.map((p) => p.lat).join(',');
     const lons = PLACES.map((p) => p.lon).join(',');
-    return `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,snow_depth&hourly=snowfall,snow_depth,precipitation&daily=temperature_2m_max,temperature_2m_min&past_days=14&forecast_days=10&timezone=Europe%2FRome`;
+    const elev = PLACES.map((p) => p.elevation).join(',');
+    return `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&elevation=${elev}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,snow_depth&hourly=snowfall,snow_depth,precipitation&daily=temperature_2m_max,temperature_2m_min&past_days=14&forecast_days=10&timezone=Europe%2FRome`;
 };
 
 const NO_SNOW_14 = 'None in 14+ days';
@@ -441,13 +465,74 @@ function CamTile({ cam, state, onOpen, caption }: { cam: Cam; state?: CamState; 
     );
 }
 
+
+// ---------- The Sellaronda on a map ----------
+// Stops at their real coordinates, joined by straight lines. Orange = clockwise signs, green = anticlockwise.
+const LOOP = ['selva', 'passogardena', 'colfosco', 'corvara', 'campolongo', 'arabba', 'pordoi', 'canazei', 'campitello', 'passosella', 'plandegralba'];
+type LabelPos = 'n' | 'nw' | 'ne' | 'e' | 'se' | 'sw' | 's' | 'w';
+const LABELLED: Record<string, LabelPos> = { selva: 'nw', passogardena: 'n', corvara: 'ne', campolongo: 'e', arabba: 'se', pordoi: 's', canazei: 'sw', passosella: 'w' };
+const SELLA_OUTLINE: [number, number][] = [[46.543, 11.795], [46.546, 11.815], [46.541, 11.836], [46.537, 11.851], [46.525, 11.859], [46.511, 11.857], [46.501, 11.848], [46.495, 11.829], [46.494, 11.811], [46.499, 11.791], [46.508, 11.776], [46.521, 11.772], [46.533, 11.779]];
+
+function LoopMap({ wx }: { wx: Record<string, Wx> }) {
+    const W = 390, H = 312, K = 2150, CX = 190, CY = 156, LAT0 = 46.5156, LON0 = 11.808;
+    const F = K * Math.cos((LAT0 * Math.PI) / 180);
+    const P = (lat: number, lon: number): [number, number] => [CX + (lon - LON0) * F, CY - (lat - LAT0) * K];
+    const stops = LOOP.map((id) => PLACES.find((p) => p.id === id)).filter((p): p is Place => !!p);
+    const pts = stops.map((p) => P(p.lat, p.lon));
+    const norm = (v: [number, number]): [number, number] => { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; };
+    const offset = (d: number) => pts.map((c, i) => {
+        const a = pts[(i - 1 + pts.length) % pts.length], b = pts[(i + 1) % pts.length];
+        const n1 = norm([c[1] - a[1], a[0] - c[0]]), n2 = norm([b[1] - c[1], c[0] - b[0]]);
+        const m = norm([n1[0] + n2[0], n1[1] + n2[1]]);
+        const l = d / Math.max(0.45, m[0] * n1[0] + m[1] * n1[1]);
+        return [c[0] + m[0] * l, c[1] + m[1] * l] as [number, number];
+    });
+    const poly = (q: [number, number][]) => q.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+    const mass = SELLA_OUTLINE.map(([a, o]) => P(a, o));
+    const [sx, sy] = P(46.522, 11.81);
+    const bands = Array.from({ length: 30 }, (_, i) => 40 + i * 9);
+    return (
+        <svg className="sr-map" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Map of the Sellaronda with snow at each stop">
+            <defs><clipPath id="sr-mass"><polygon points={poly(mass)} /></clipPath></defs>
+            <polygon points={poly(mass)} fill="#141414" />
+            <g clipPath="url(#sr-mass)">{bands.map((y) => <rect key={y} x="0" y={y} width={W} height={y % 27 === 4 ? 3 : 1} fill="#fff" opacity=".14" />)}</g>
+            <text x={sx} y={sy} className="sr-map-sella" textAnchor="middle">Sella group</text>
+            <polygon points={poly(offset(4.5))} fill="none" stroke="#ff7a1a" strokeWidth="3" strokeLinejoin="miter" />
+            <polygon points={poly(offset(-4.5))} fill="none" stroke="#1aa957" strokeWidth="3" strokeLinejoin="miter" />
+            {stops.map((p, i) => {
+                const [x, y] = pts[i];
+                const pos = LABELLED[p.id];
+                const w = wx[p.id];
+                const mark = p.kind === 'pass'
+                    ? <path d={`M${x} ${y - 9} L${x + 9} ${y + 7} L${x - 9} ${y + 7}Z`} fill="#000" stroke="#fff" strokeWidth="2" />
+                    : <rect x={x - 5} y={y - 5} width="10" height="10" fill="#fff" stroke="#000" strokeWidth="2" />;
+                if (!pos) return <a key={p.id} href={`#${p.id}`}><rect x={x - 3} y={y - 3} width="6" height="6" fill="#8c8c8c" /></a>;
+                const L: Record<LabelPos, ['start' | 'middle' | 'end', number, number]> = {
+                    n: ['middle', x, y - 36], nw: ['end', x - 10, y - 34], ne: ['middle', x, y - 36], e: ['start', x + 14, y - 32],
+                    se: ['start', x + 14, y + 8], s: ['start', x + 12, y + 22], sw: ['middle', x, y + 24], w: ['end', x - 14, y - 4],
+                };
+                const [anchor, lx, ly] = L[pos];
+                return (
+                    <a key={p.id} href={`#${p.id}`} className="sr-map-stop">
+                        {mark}
+                        <text x={lx} y={ly} textAnchor={anchor} className="sr-map-name">{p.id === 'campolongo' ? 'Campolongo' : p.name}</text>
+                        <text x={lx} y={ly + 19} textAnchor={anchor} className="sr-map-num">
+                            <tspan>{w ? fmtCm(w.depthCm) : '…'}</tspan>
+                            {w && <tspan className="sr-map-new" dx="5">{plusCm(w.expectedCm).replace(' cm', '')}</tspan>}
+                        </text>
+                    </a>
+                );
+            })}
+        </svg>
+    );
+}
+
 export function App() {
     const [wx, setWx] = useState<Record<string, Wx>>({});
     const [wxError, setWxError] = useState(false);
     const [cams, setCams] = useState<Record<string, CamState>>({});
     const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
     const objectUrls = useRef<string[]>([]);
-    const [openValley, setOpenValley] = useState<string | null>(null);
     const [placeId, setPlaceId] = useState<string>(() => window.location.hash.slice(1));
 
     const loadAll = useCallback(async () => {
@@ -653,45 +738,31 @@ export function App() {
             </div></section>
 
             <section className="sr-blk"><div className="sr-wrap">
-                <div className="sr-h2"><b>By valley</b><span>Tap a valley to see every place</span></div>
-                {VALLEYS.map((v) => {
-                    const all = PLACES.filter((p) => p.valley === v);
-                    const L = all.filter((p) => wx[p.id]);
-                    const m = L.filter((p) => p.elevation >= UP);
-                    const d = L.filter((p) => p.elevation < UP);
-                    const open = openValley === v;
-                    return (
-                        <div className={`sr-v${open ? ' open' : ''}`} key={v}>
-                            <button type="button" className="sr-v-head" aria-expanded={open} onClick={() => setOpenValley(open ? null : v)}>
-                                <span className="sr-v-t"><b>{v}</b><span>{all.length} place{all.length > 1 ? 's' : ''} {open ? '−' : '+'}</span></span>
-                                {L.length > 0 && (
-                                    <span className="sr-v-r">
-                                        <span><small>Mountain</small><i className={m.length ? '' : 'z'}>{m.length ? range(depths(m), ' cm') : '–'}</i></span>
-                                        <span><small>Village</small><i className={d.length ? '' : 'z'}>{d.length ? range(depths(d), ' cm') : '–'}</i></span>
-                                        <span><small>Most new snow</small><i className="b">{plusCm(Math.max(...L.map((p) => wx[p.id].expectedCm)))}</i></span>
-                                        <span><small>Coldest now</small><i>{tRound(Math.min(...L.map((p) => wx[p.id].temp)))}</i></span>
-                                    </span>
-                                )}
+                <div className="sr-h2"><b>Every place</b><span>{PLACES.length} places · deepest snow first</span></div>
+                <div className="sr-pl">
+                    <div className="sr-pl-h"><span /><span>On the ground</span><span>Next 10 days</span><span>Now</span></div>
+                    {[...PLACES].sort((a, b) => (depthOf(wx[b.id]) ?? -1) - (depthOf(wx[a.id]) ?? -1)).map((p) => {
+                        const w = wx[p.id];
+                        return (
+                            <button type="button" className="sr-pl-row" key={p.id} onClick={() => openPlace(p.id)}>
+                                <span className="sr-pl-n"><b>{p.name}</b><small>{fmtElev(p.elevation)} · {p.kind === 'village' ? 'Village' : KIND_LABEL[p.kind]}</small></span>
+                                <span>{w ? fmtCm(w.depthCm) : '…'}</span>
+                                <span className="b">{w ? plusCm(w.expectedCm) : ''}</span>
+                                <span>{w ? tRound(w.temp) : ''}<em>›</em></span>
                             </button>
-                            {open && (
-                                <div className="sr-pl">
-                                    <div className="sr-pl-h"><span /><span>On the ground</span><span>Next 10 days</span><span>Now</span></div>
-                                    {all.map((p) => {
-                                        const w = wx[p.id];
-                                        return (
-                                            <button type="button" className="sr-pl-row" key={p.id} onClick={() => openPlace(p.id)}>
-                                                <span className="sr-pl-n"><b>{p.name}</b><small>{fmtElev(p.elevation)}{p.kind !== 'village' ? ` · ${KIND_LABEL[p.kind]}` : ''}</small></span>
-                                                <span>{w ? fmtCm(w.depthCm) : '…'}</span>
-                                                <span className="b">{w ? plusCm(w.expectedCm) : ''}</span>
-                                                <span>{w ? tRound(w.temp) : ''}<em>›</em></span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                        );
+                    })}
+                </div>
+
+                <div className="sr-h2"><b>The Sellaronda</b><span>Tap a stop to open it</span></div>
+                <div className="sr-mapbox"><LoopMap wx={wx} /></div>
+                <div className="sr-mapkey">
+                    <span><i className="or" />Clockwise · orange signs</span>
+                    <span><i className="gr" />Anticlockwise · green signs</span>
+                    <span><i className="pass" />Mountain pass</span>
+                    <span><i className="vil" />Village</span>
+                </div>
+                <p className="sr-mapnote">At each stop: <b>snow on the ground now</b>, then in blue <b className="b">the new snow expected in the next 10 days</b>, in cm. Places are at their real positions; the line between them is simplified.</p>
 
                 <div className="sr-h2"><b>Webcams</b><span>Tap for the place</span></div>
                 <div className="sr-cams">

@@ -7,7 +7,7 @@
   --g1: #8c8c8c;
   --g2: #4a4a4a;
   --line: #2a2a2a;
-  --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font: "Helvetica Neue", Helvetica, "Inter", Arial, sans-serif;
 }
 html, body, #root { margin: 0; min-height: 100%; background: #000; }
 .sr-root, .sr-root * { font-family: var(--font) !important; box-sizing: border-box; border-radius: 0 !important; }
@@ -77,7 +77,7 @@ html, body, #root { margin: 0; min-height: 100%; background: #000; }
 .sr-v-r i.z { color: var(--g2); }
 .sr-v.open { background: #0d0d0d; }
 
-.sr-pl { padding: 0 0 12px; }
+.sr-pl { padding: 0 0 4px; }
 .sr-pl-h, .sr-pl-row { display: grid; grid-template-columns: minmax(0, 1.5fr) 1fr 1fr .7fr; gap: 8px; align-items: center; }
 .sr-pl-h { padding: 4px 0 6px; font-size: 11px; color: var(--g1); border-bottom: 1px solid var(--line); }
 .sr-pl-h span:not(:first-child), .sr-pl-row > span:not(:first-child) { text-align: right; }
@@ -121,3 +121,24 @@ html, body, #root { margin: 0; min-height: 100%; background: #000; }
   .sr-h1 { font-size: 38px; }
   .sr-v-r i { font-size: 15px; }
 }
+
+/* ---------- Map ---------- */
+.sr-mapbox { margin-top: 10px; }
+.sr-map { display: block; width: calc(100% + 36px); max-width: 560px; margin: 0 -18px; }
+@media (min-width: 640px) { .sr-map { margin: 0 auto; width: 100%; } }
+.sr-map text { font-family: var(--font); }
+.sr-map-sella { font-size: 13px; font-weight: 700; fill: #8c8c8c; }
+.sr-map-name { font-size: 12px; fill: #fff; }
+.sr-map-num { font-size: 17px; font-weight: 700; fill: #fff; }
+.sr-map-new { font-size: 13px; fill: var(--ice); }
+.sr-map-stop:hover .sr-map-name { text-decoration: underline; }
+.sr-mapkey { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-top: 14px; font-size: 12px; color: #d6d6d6; }
+.sr-mapkey span { display: flex; align-items: center; gap: 8px; }
+.sr-mapkey i { display: inline-block; flex: none; }
+.sr-mapkey i.or { width: 20px; height: 4px; background: #ff7a1a; }
+.sr-mapkey i.gr { width: 20px; height: 4px; background: #1aa957; }
+.sr-mapkey i.vil { width: 10px; height: 10px; background: #fff; }
+.sr-mapkey i.pass { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid #fff; }
+.sr-mapnote { margin-top: 12px; font-size: 13px; line-height: 1.5; color: var(--g1); }
+.sr-mapnote b { color: #fff; }
+.sr-mapnote b.b { color: var(--ice); }
