@@ -13,7 +13,7 @@ export function FileRouter({ children }: { children: React.ReactNode }) {
 
 export function FileCard({ children, lang, dir }: { children: React.ReactNode; lang?: string; dir?: 'ltr' | 'rtl' }) {
     return (
-        <div lang={lang} dir={dir} style={{ minHeight: '100vh', background: '#ffffff' }}>
+        <div lang={lang} dir={dir} style={{ minHeight: '100vh', background: '#000000' }}>
             {children}
         </div>
     );

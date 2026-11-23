@@ -132,7 +132,7 @@ const PLACES: Place[] = [
         ],
     },
     {
-        id: 'canazei', name: 'Canazei', valley: 'Val di Fassa', kind: 'village', elevation: 1460, lat: 46.4758, lon: 11.8200,
+        id: 'canazei', name: 'Canazei', valley: 'Val di Fassa', kind: 'village', elevation: 1460, lat: 46.4769, lon: 11.7709,
         cams: [
             { title: 'Val di Fassa webcams', page: 'https://www.fassa.com/en/webcam' },
         ],
@@ -349,195 +349,97 @@ function summarize(loc: any): Pick<Wx, 'lastSnow' | 'nextSnow' | 'past' | 'past7
     return { lastSnow, nextSnow, past, past7, fc, expectedCm: roundCm(expected), est, series };
 }
 
-function Glyph({ group }: { group: Group }) {
-    const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
-    const cloud = <path {...p} d="M7 18h10a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7 9.5 4.3 4.3 0 0 0 7 18z" />;
+
+// ===================== Glance design =====================
+// One look tells you what is happening: a sentence, four numbers, ten days of snow.
+// Valleys summarise "mountain" (2,000 m and up) and "village" (below). Tap for every place.
+
+const UP = 2000;
+const LONG_DAY: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' };
+const depthOf = (w?: Wx): number | null => (w && w.depthCm !== null && w.depthCm !== undefined ? roundCm(w.depthCm * 100) : null);
+const tRound = (t: number): string => fmtT(Math.round(t) === 0 ? 0 : Math.round(t));
+const range = (vals: number[], unit = ''): string => {
+    if (!vals.length) return '–';
+    const lo = Math.round(Math.min(...vals));
+    const hi = Math.round(Math.max(...vals));
+    return lo === hi ? `${lo}${unit}` : `${lo}–${hi}${unit}`;
+};
+const tRange = (vals: number[]): string => {
+    if (!vals.length) return '–';
+    const lo = Math.round(Math.min(...vals));
+    const hi = Math.round(Math.max(...vals));
+    return lo === hi ? tRound(lo) : `${tRound(lo).replace('°', '')} to ${tRound(hi)}`;
+};
+const plusCm = (cm: number): string => (cm >= 0.5 ? `+${Math.round(cm) || cm} cm` : '0 cm');
+const dayParts = (label: string): { wd: string; d: string; dm: string } => {
+    const [wd, dm = ''] = label.split(' ');
+    return { wd, d: dm.split('/')[0], dm };
+};
+const shortDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/Rome' });
+
+const LINE1: Record<Group, string> = {
+    snow: 'Snowing on the lifts.', clear: 'Sunny on the lifts.', cloud: 'Cloudy on the lifts.',
+    fog: 'Fog on the lifts.', rain: 'Rain on the lifts.', storm: 'Storms on the lifts.',
+};
+
+// Square-ended snowflake: straight strokes only.
+function Flake({ size }: { size: number }) {
     return (
-        <svg className="sr-glyph" viewBox="0 0 24 24" aria-hidden="true">
-            {group === 'clear' && <g {...p}><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4" /></g>}
-            {group === 'cloud' && cloud}
-            {group === 'fog' && <g {...p}><path d="M7 13h10a3.5 3.5 0 0 0 .4-7A5 5 0 0 0 7.5 6 3.6 3.6 0 0 0 7 13z" /><path d="M4 17h16M7 21h10" /></g>}
-            {group === 'rain' && <g>{cloud}<path {...p} d="M9 20l1-2M13 20l1-2M17 20l1-2" /></g>}
-            {group === 'snow' && <g {...p}><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" /><path d="M9.5 4.5L12 6.5l2.5-2M9.5 19.5L12 17.5l2.5 2" /></g>}
-            {group === 'storm' && <g>{cloud}<path {...p} d="M12 14l-2 3h3l-2 3" /></g>}
+        <svg className="sr-flake" width={size} height={size} viewBox="-7 -7 14 14" aria-hidden="true">
+            <path d="M0-6V6M-5.2-3L5.2 3M-5.2 3L5.2-3" stroke="currentColor" strokeWidth={14 / size + 0.5} fill="none" />
         </svg>
     );
 }
 
-
-function Icon({ kind }: { kind: 'ground' | 'flake' | 'thermo' | 'calendar' | 'sun' | 'new' }) {
-    const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+type StripDay = { key: string; label: string; snow: number };
+// Ten days in a row, like a weather app: day, a flake sized by the amount, the number. The biggest day is inverted.
+function SnowStrip({ days }: { days: StripDay[] }) {
+    const big = days.reduce((b, d, i) => (d.snow > days[b].snow ? i : b), 0);
     return (
-        <svg className="sr-icon" viewBox="0 0 24 24" aria-hidden="true">
-            {kind === 'ground' && <g {...p}><path d="M3 20h18" /><path d="M6 20v-5M10 20v-9M14 20v-6M18 20v-10" /></g>}
-            {kind === 'flake' && <g {...p}><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" /><path d="M9.5 4.5L12 6.5l2.5-2M9.5 19.5L12 17.5l2.5 2" /></g>}
-            {kind === 'new' && <g {...p}><path d="M12 3v7M9 5l3 2.5L15 5" /><path d="M5 21h14" /><path d="M7 21c0-4 2-6 5-6s5 2 5 6" /></g>}
-            {kind === 'thermo' && <g {...p}><path d="M10 14.5V5a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z" /><path d="M12 9v8" /></g>}
-            {kind === 'calendar' && <g {...p}><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" /></g>}
-            {kind === 'sun' && <g {...p}><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4" /></g>}
-        </svg>
-    );
-}
-
-// ---------- Shared formatting: every number carries its unit and, for new snow, a plus sign ----------
-const fmtNum = (v: number): string => `${v < 0 ? '−' : ''}${Math.abs(v)}`;
-const fmtNew = (cm: number): string => (cm >= 0.5 ? `+${cm} cm` : '0 cm');
-const heat = (cm: number): number => (cm < 0.5 ? 0 : cm < 2 ? 1 : cm < 5 ? 2 : cm < 10 ? 3 : cm < 20 ? 4 : 5);
-
-type Metric = 'depth' | 'past7' | 'next10' | 'temp';
-const METRICS: { id: Metric; tab: string; head: string; note: string }[] = [
-    { id: 'depth', tab: 'On the ground now', head: 'Snow on the ground now', note: 'How deep the snow is at each place today. Model estimate, in cm.' },
-    { id: 'past7', tab: 'Fell, last 7 days', head: 'New snow that fell in the last 7 days', note: 'Total snowfall over the past week at each place, in cm.' },
-    { id: 'next10', tab: 'Expected, next 10 days', head: 'New snow expected in the next 10 days', note: 'Total forecast snowfall from today to day 10, in cm.' },
-    { id: 'temp', tab: 'Temperature now', head: 'Air temperature right now', note: 'Current temperature at each place, in °C.' },
-];
-const metricValue = (m: Metric, d: Wx): number | null =>
-    m === 'depth' ? (d.depthCm === null || d.depthCm === undefined ? null : roundCm(d.depthCm * 100))
-        : m === 'past7' ? d.past7 : m === 'next10' ? d.expectedCm : Math.round(d.temp);
-const fmtMetric = (m: Metric, v: number): string => (m === 'temp' ? fmtT(v) : m === 'depth' ? `${v} cm` : fmtNew(v));
-
-// Every place ranked on one scale. Grey = snow on the ground, blue = new snow, ink = temperature.
-function RankBars({ metric, wx }: { metric: Metric; wx: Record<string, Wx> }) {
-    const rows = PLACES.filter((p) => wx[p.id]).map((p) => ({ p, v: metricValue(metric, wx[p.id]) }))
-        .sort((a, b) => (b.v ?? -999) - (a.v ?? -999));
-    const vals = rows.filter((r) => r.v !== null).map((r) => r.v as number);
-    const lo = Math.min(0, ...vals);
-    const hi = Math.max(1, ...vals);
-    const pct = (v: number) => ((v - lo) / (hi - lo)) * 100;
-    const zero = pct(0);
-    return (
-        <ol className={`sr-bars m-${metric}`}>
-            {rows.map(({ p, v }, i) => (
-                <li className="sr-bar" key={p.id}>
-                    <span className="sr-bar-n">{i + 1}</span>
-                    <span className="sr-bar-name">{p.name}<em>{p.valley}</em></span>
-                    <span className="sr-bar-track">
-                        {v !== null && <i style={{ left: `${Math.min(zero, pct(v))}%`, width: `${Math.max(0.6, Math.abs(pct(v) - zero))}%` }} />}
-                        {lo < 0 && <b style={{ left: `${zero}%` }} />}
-                    </span>
-                    <span className="sr-bar-v">{v === null ? 'n/a' : fmtMetric(metric, v)}</span>
-                </li>
-            ))}
-        </ol>
-    );
-}
-
-// Where and when: places down the side, the next 10 days across, cells shaded by expected new snow.
-function SnowMatrix({ wx }: { wx: Record<string, Wx> }) {
-    const first = PLACES.find((p) => wx[p.id]);
-    if (!first) return null;
-    const days = wx[first.id].fc;
-    return (
-        <div className="sr-mx" role="table" aria-label="New snow expected per place and day, in cm">
-            <div className="sr-mx-row sr-mx-head" role="row">
-                <span className="sr-mx-name" />
-                {days.map((d, i) => (
-                    <span key={d.date} className={i === 0 ? 'today' : ''}>{d.dayLabel.slice(0, 2)}<b>{d.dayLabel.split(' ')[1]?.split('/')[0]}</b></span>
-                ))}
-            </div>
-            {VALLEYS.map((v) => {
-                const list = PLACES.filter((p) => p.valley === v && wx[p.id]);
-                if (!list.length) return null;
+        <div className="sr-strip" role="table" aria-label="New snow per day, in cm">
+            {days.map((d, i) => {
+                const p = dayParts(d.label);
+                const has = d.snow >= 0.5;
                 return (
-                    <React.Fragment key={v}>
-                        <div className="sr-mx-valley">{v}</div>
-                        {list.map((p) => (
-                            <div className="sr-mx-row" role="row" key={p.id}>
-                                <span className="sr-mx-name">{p.name}</span>
-                                {wx[p.id].fc.map((d, i) => (
-                                    <span key={d.date} className={`sr-mx-c h${heat(d.snow)}${i === 0 ? ' today' : ''}`}>{d.snow >= 0.5 ? d.snow : ''}</span>
-                                ))}
-                            </div>
-                        ))}
-                    </React.Fragment>
+                    <div key={d.key} role="row" className={`sr-strip-day${has && i === big ? ' big' : ''}${has ? '' : ' dry'}`}>
+                        <span className="sr-strip-wd">{i === 0 ? 'Today' : p.wd.slice(0, 2)}</span>
+                        <span className="sr-strip-d">{p.d}</span>
+                        <span className="sr-strip-ic">{has ? <Flake size={d.snow >= 8 ? 22 : d.snow >= 3 ? 17 : 12} /> : null}</span>
+                        <b>{has ? `+${Math.round(d.snow) || d.snow}` : '–'}</b>
+                    </div>
                 );
             })}
         </div>
     );
 }
 
-// One place, 24 days: grey area = snow depth on the ground, bars = new snow per day
-// (light blue = already fell, blue = expected). Same cm scale for both, so the bars read as additions.
-function PlaceChart({ d }: { d: Wx }) {
-    const s = d.series;
-    const n = s.length;
-    const ti = s.findIndex((x) => x.today);
-    const maxV = Math.max(10, ...s.map((x) => x.depth ?? 0), ...s.map((x) => x.snow));
-    const step = maxV > 100 ? 40 : maxV > 40 ? 20 : 10;
-    const top = Math.ceil((maxV * 1.05) / step) * step;
-    const ticks: number[] = [];
-    for (let t = 0; t <= top; t += step) ticks.push(t);
-    const yy = (v: number) => 100 - (v / top) * 100;
-    const pts = s.map((x, i) => (x.depth === null ? null : `${i + 0.5},${yy(x.depth)}`)).filter((x): x is string => x !== null);
-    const firstX = pts.length ? pts[0].split(',')[0] : '0';
-    const lastX = pts.length ? pts[pts.length - 1].split(',')[0] : '0';
-    const area = pts.length ? `M${firstX},100 L${pts.join(' L')} L${lastX},100 Z` : '';
-    let big = -1;
-    s.forEach((x, i) => { if (!x.past && x.snow >= 1 && (big < 0 || x.snow > s[big].snow)) big = i; });
-    const depthNow = ti >= 0 ? s[ti].depth : null;
-    const xl = (i: number) => `${((i + 0.5) / n) * 100}%`;
-    const xLabels = [0, 7, ti, Math.min(n - 1, ti + 5), n - 1].filter((v, i, a) => v >= 0 && a.indexOf(v) === i);
+function TempStrip({ fc }: { fc: DayFc[] }) {
     return (
-        <figure className="sr-pc">
-            <figcaption className="sr-pc-key">
-                <span><i className="k-ground" />Snow on the ground</span>
-                <span><i className="k-fell" />Snow that fell</span>
-                <span><i className="k-new" />Snow expected</span>
-            </figcaption>
-            <div className="sr-pc-zones" style={{ gridTemplateColumns: `${ti}fr ${n - ti}fr` }}>
-                <span>Past 14 days</span><span>Next 10 days</span>
-            </div>
-            <div className="sr-pc-plot">
-                {ticks.map((t) => <span className="sr-pc-grid" key={t} style={{ bottom: `${(t / top) * 100}%` }}><em>{t}</em></span>)}
-                <span className="sr-pc-unit">cm</span>
-                <svg className="sr-pc-area" viewBox={`0 0 ${n} 100`} preserveAspectRatio="none" aria-hidden="true">
-                    <path d={area} />
-                    <polyline points={pts.join(' ')} vectorEffect="non-scaling-stroke" />
-                </svg>
-                <div className="sr-pc-cols" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
-                    {s.map((x, i) => (
-                        <span key={x.date} className={`sr-pc-col${x.past ? ' past' : ''}${x.today ? ' today' : ''}`}>
-                            {x.snow > 0 && <i style={{ height: `${(x.snow / top) * 100}%` }} />}
-                            {i === big && <b style={{ bottom: `${(x.snow / top) * 100}%` }}>+{x.snow} cm</b>}
-                        </span>
-                    ))}
-                </div>
-                {depthNow !== null && (
-                    <span className="sr-pc-now" style={{ left: `${(ti / n) * 100}%`, bottom: `${(depthNow / top) * 100}%` }}><b>{depthNow} cm</b></span>
-                )}
-            </div>
-            <div className="sr-pc-x">
-                {xLabels.map((i, k) => (
-                    <span key={i} className={`${i === ti ? 'today' : ''}${k === 0 ? ' first' : ''}${i === n - 1 ? ' last' : ''}`} style={{ left: i === ti ? `${(ti / n) * 100}%` : xl(i) }}>{i === ti ? 'Today' : s[i].label}</span>
-                ))}
-            </div>
+        <div className="sr-tstrip" role="table" aria-label="High and low temperature per day">
+            {fc.map((d) => (
+                <div key={d.date} role="row"><b>{tRound(d.tmax)}</b><span>{tRound(d.tmin)}</span></div>
+            ))}
+        </div>
+    );
+}
+
+function CamTile({ cam, state, onOpen, caption }: { cam: Cam; state?: CamState; onOpen?: () => void; caption: React.ReactNode }) {
+    if (!cam.img || state === 'error') {
+        return (
+            <a className="sr-camlink" href={cam.page} target="_blank" rel="noreferrer">
+                <span>{cam.title}</span><small>{cam.img ? 'Cam offline · open the source ↗' : 'Open the live cam ↗'}</small>
+            </a>
+        );
+    }
+    return (
+        <figure className="sr-cam">
+            <button type="button" className="sr-cam-img" onClick={onOpen} disabled={!onOpen}>
+                {state && state !== 'loading' ? <img src={state} alt={`Live webcam: ${cam.title}`} /> : <span className="sr-cam-wait">Loading cam…</span>}
+            </button>
+            <figcaption>{caption}<a href={cam.page} target="_blank" rel="noreferrer">source ↗</a></figcaption>
         </figure>
     );
 }
-
-// The next 10 days as a labelled table: no number without its row name.
-function NextTable({ fc }: { fc: DayFc[] }) {
-    return (
-        <div className="sr-nt" role="table" aria-label="Next 10 days">
-            <div className="sr-nt-row sr-nt-h" role="row"><span>Day</span>{fc.map((d, i) => <span key={d.date} className={i === 0 ? 'today' : ''}>{d.dayLabel.slice(0, 2)}<b>{d.dayLabel.split(' ')[1]?.split('/')[0]}</b></span>)}</div>
-            <div className="sr-nt-row sr-nt-snow" role="row"><span>New snow, cm</span>{fc.map((d) => <span key={d.date} className={d.snow >= 0.5 ? `on h${heat(d.snow)}` : ''}>{d.snow >= 0.5 ? d.snow : '–'}</span>)}</div>
-            <div className="sr-nt-row" role="row"><span>High, °C</span>{fc.map((d) => <span key={d.date}>{fmtNum(d.tmax)}</span>)}</div>
-            <div className="sr-nt-row sr-nt-lo" role="row"><span>Low, °C</span>{fc.map((d) => <span key={d.date}>{fmtNum(d.tmin)}</span>)}</div>
-        </div>
-    );
-}
-
-function SectionHead({ no, title, note }: { no: string; title: string; note: string }) {
-    return (
-        <div className="sr-sh">
-            <span className="sr-sh-no">{no}</span>
-            <h2 className="sr-sh-title">{title}</h2>
-            <p className="sr-sh-note">{note}</p>
-        </div>
-    );
-}
-
-type Stat = { value: string; label: string; where: string };
 
 export function App() {
     const [wx, setWx] = useState<Record<string, Wx>>({});
@@ -545,7 +447,8 @@ export function App() {
     const [cams, setCams] = useState<Record<string, CamState>>({});
     const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
     const objectUrls = useRef<string[]>([]);
-    const [metric, setMetric] = useState<Metric>('depth');
+    const [openValley, setOpenValley] = useState<string | null>(null);
+    const [placeId, setPlaceId] = useState<string>(() => window.location.hash.slice(1));
 
     const loadAll = useCallback(async () => {
         try {
@@ -577,7 +480,7 @@ export function App() {
         PLACES.forEach((p) => p.cams.forEach((c) => { if (c.img) entries.push([c.img, c.img.startsWith('pano:') ? c.img : `${c.img}?t=${stamp}`]); }));
         setCams((prev) => {
             const next = { ...prev };
-            entries.forEach(([key]) => { next[key] = 'loading'; });
+            entries.forEach(([key]) => { if (!next[key]) next[key] = 'loading'; });
             return next;
         });
         await Promise.all(entries.map(async ([key, url]) => {
@@ -626,150 +529,182 @@ export function App() {
         return () => { window.clearInterval(id); urls.forEach((u) => URL.revokeObjectURL(u)); };
     }, [loadAll]);
 
-    const haveWx = Object.keys(wx).length > 0;
+    // A place page lives at #<place-id>, so the phone's back button works.
+    useEffect(() => {
+        const onHash = () => { setPlaceId(window.location.hash.slice(1)); window.scrollTo(0, 0); };
+        window.addEventListener('hashchange', onHash);
+        return () => window.removeEventListener('hashchange', onHash);
+    }, []);
+    const openPlace = (id: string) => { window.location.hash = id; };
+    const goHome = () => { if (window.history.length > 1 && window.location.hash) window.history.back(); else window.location.hash = ''; };
+
     const live = PLACES.filter((p) => wx[p.id]);
-    const best = (f: (p: Place) => number | null, dir: 1 | -1): Place | null => {
-        let b: Place | null = null;
-        let bv = 0;
-        live.forEach((p) => { const v = f(p); if (v !== null && (b === null || dir * v > dir * bv)) { b = p; bv = v; } });
-        return b;
-    };
-    const stats: Stat[] = [];
-    if (haveWx) {
-        const deep = best((p) => wx[p.id].depthCm, 1);
-        if (deep) stats.push({ value: fmtCm(wx[deep.id].depthCm), label: 'Deepest snow on the ground', where: `${deep.name} · ${fmtElev(deep.elevation)}` });
-        const wet = best((p) => wx[p.id].expectedCm, 1);
-        if (wet) stats.push(wx[wet.id].expectedCm >= 0.5
-            ? { value: fmtNew(wx[wet.id].expectedCm), label: 'Most new snow expected, next 10 days', where: wet.name }
-            : { value: '0 cm', label: 'New snow expected, next 10 days', where: 'Dry everywhere' });
-        let bd: { p: Place; i: number; cm: number } | null = null;
-        live.forEach((p) => wx[p.id].fc.forEach((day, i) => { if (day.snow >= 0.5 && (bd === null || day.snow > bd.cm)) bd = { p, i, cm: day.snow }; }));
-        const bdx = bd as { p: Place; i: number; cm: number } | null;
-        stats.push(bdx
-            ? { value: bdx.i === 0 ? 'Today' : wx[bdx.p.id].fc[bdx.i].dayLabel.replace(/\/\d+$/, ''), label: 'Biggest snow day ahead', where: `Up to +${bdx.cm} cm at ${bdx.p.name}` }
-            : { value: 'None', label: 'Biggest snow day ahead', where: 'No new snow in the forecast' });
-        const cold = best((p) => wx[p.id].temp, -1);
-        if (cold) stats.push({ value: fmtT(Math.round(wx[cold.id].temp)), label: 'Coldest right now', where: cold.name });
+    const haveWx = live.length > 0;
+    const up = live.filter((p) => p.elevation >= UP);
+    const down = live.filter((p) => p.elevation < UP);
+    const depths = (list: Place[]) => list.map((p) => depthOf(wx[p.id])).filter((v): v is number => v !== null);
+    const updated = updatedAt ? `Updated ${timeFmt.format(updatedAt)}` : 'Loading live data…';
+
+    const header = (
+        <div className="sr-nav">
+            {placeId && PLACES.some((p) => p.id === placeId)
+                ? <button type="button" className="sr-back" onClick={goHome}>← Sella Ronda</button>
+                : <span className="sr-brand">Sella Ronda</span>}
+            <span className="sr-upd">{updated}<button type="button" className="sr-refresh" onClick={loadAll}>Refresh</button></span>
+        </div>
+    );
+    const error = wxError ? <p className="sr-err">Weather data did not load. Check the connection and press Refresh.</p> : null;
+    const footer = (
+        <footer className="sr-foot">
+            <p>
+                Weather and snow from Open-Meteo for each place. Snow on the ground is a model estimate, not a resort measurement;
+                lift stations read deeper because they sit higher. “Mountain” means 2,000 m and above. Refreshes every 10 minutes.
+            </p>
+            <p>Webcams: Feratel, Panomax and the Val Gardena, Val di Fassa, Alta Badia and Arabba tourism boards. Some cams stop after dark.</p>
+        </footer>
+    );
+
+    // ---------------- Place page ----------------
+    const place = PLACES.find((p) => p.id === placeId);
+    if (place) {
+        const w = wx[place.id];
+        const big = w ? w.fc.reduce((b, d, i) => (d.snow > w.fc[b].snow ? i : b), 0) : 0;
+        const bigDay = w ? w.fc[big] : null;
+        const bigName = bigDay ? (big === 0 ? 'today' : big === 1 ? 'tomorrow' : `on ${LONG_DAY[dayParts(bigDay.dayLabel).wd] ?? dayParts(bigDay.dayLabel).wd}`) : '';
+        return <FileCard lang="en" dir="ltr">
+            <div className="sr-root">
+                <section className="sr-ice"><div className="sr-wrap">
+                    {header}
+                    <h1 className="sr-pname">{place.name}</h1>
+                    <p className="sr-pmeta">{fmtElev(place.elevation)} · {place.kind === 'village' ? 'Village' : KIND_LABEL[place.kind]} · {place.valley}</p>
+                    {error}
+                    {!w && !wxError && <p className="sr-wait">Loading…</p>}
+                    {w && (
+                        <>
+                            <p className="sr-say">
+                                {WMO_EN[w.code] ?? 'Now'}, {tRound(w.temp)}.{' '}
+                                {bigDay && bigDay.snow >= 0.5 ? <>Most snow {bigName}: <b>{plusCm(bigDay.snow)}</b>.</> : <>No new snow in the next 10 days.</>}
+                            </p>
+                            <dl className="sr-stats">
+                                <div><dt>Snow on the ground</dt><dd>{fmtCm(w.depthCm)}</dd><span>Model estimate</span></div>
+                                <div><dt>New snow, next 10 days</dt><dd>{plusCm(w.expectedCm)}</dd><span>Next: {w.nextSnow}</span></div>
+                                <div><dt>Temperature now</dt><dd>{tRound(w.temp)}</dd><span>Feels like {tRound(w.feels)} · humidity {w.hum}%</span></div>
+                                <div><dt>New snow, last 7 days</dt><dd>{plusCm(w.past7)}</dd><span>Last: {w.lastSnow}</span></div>
+                            </dl>
+                            <div className="sr-lab"><span>New snow, next 10 days</span><span>cm</span></div>
+                            <SnowStrip days={w.fc.map((d) => ({ key: d.date, label: d.dayLabel, snow: d.snow }))} />
+                            <div className="sr-lab"><span>Temperature, high and low</span><span>°C</span></div>
+                            <TempStrip fc={w.fc} />
+                        </>
+                    )}
+                </div></section>
+                <section className="sr-blk"><div className="sr-wrap">
+                    <div className="sr-h2"><b>Webcams</b><span>{place.cams.length} for {place.name}</span></div>
+                    <div className="sr-cams">
+                        {place.cams.map((c) => (
+                            <CamTile key={c.title} cam={c} state={c.img ? cams[c.img] : undefined} caption={<b>{c.title}</b>} />
+                        ))}
+                    </div>
+                    {footer}
+                </div></section>
+            </div>
+        </FileCard>;
     }
-    const M = METRICS.find((m) => m.id === metric) ?? METRICS[0];
+
+    // ---------------- Home ----------------
+    const fc0 = live.length ? wx[live[0].id].fc : [];
+    const mountainDays: StripDay[] = fc0.map((d, j) => ({
+        key: d.date, label: d.dayLabel,
+        snow: up.length ? roundCm(up.reduce((a, p) => a + wx[p.id].fc[j].snow, 0) / up.length) : 0,
+    }));
+    const bj = mountainDays.reduce((b, d, i) => (d.snow > mountainDays[b].snow ? i : b), 0);
+    const bd = mountainDays[bj];
+    const groupCount = new Map<Group, number>();
+    up.forEach((p) => { const g = groupOf(wx[p.id].code); groupCount.set(g, (groupCount.get(g) ?? 0) + 1); });
+    const mainGroup = [...groupCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'cloud';
+    const bdName = bd ? (bj === 0 ? 'today' : bj === 1 ? 'tomorrow' : `on ${LONG_DAY[dayParts(bd.label).wd] ?? dayParts(bd.label).wd}`) : '';
+    const line2 = !bd || bd.snow < 0.5 ? 'No new snow for 10 days.' : `${bd.snow >= 8 ? 'Big snow' : bd.snow >= 3 ? 'Fresh snow' : 'A little snow'} ${bdName}.`;
+    const wettest = live.reduce<Place | null>((a, p) => (!a || wx[p.id].expectedCm > wx[a.id].expectedCm ? p : a), null);
+    const lastDay = fc0.length ? shortDate.format(new Date(`${fc0[fc0.length - 1].date}T12:00:00Z`)) : '';
+
+    const FEATURED = ['seceda', 'pordoi', 'pizsella', 'corvara', 'colraiser', 'boe'];
+    const featured = FEATURED.map((id) => PLACES.find((p) => p.id === id)).filter((p): p is Place => !!p)
+        .map((p) => ({ p, cam: p.cams.find((c) => c.img) ?? p.cams[0] }));
 
     return <FileCard lang="en" dir="ltr">
         <div className="sr-root">
-        <header className="sr-top">
-            <span className="sr-top-l">Snow report</span>
-            <span className="sr-top-r"><span className="sr-top-t">{updatedAt ? `Updated ${timeFmt.format(updatedAt)}` : 'Loading…'}</span><button type="button" className="sr-refresh" onClick={loadAll}>Refresh</button></span>
-        </header>
+            <section className="sr-ice"><div className="sr-wrap">
+                {header}
+                {error}
+                {!haveWx && !wxError && <p className="sr-wait">Loading live snow data…</p>}
+                {haveWx && (
+                    <>
+                        <h1 className="sr-h1">{LINE1[mainGroup]}<br />{line2}</h1>
+                        <dl className="sr-stats">
+                            <div><dt>Snow on the mountain</dt><dd>{range(depths(up), ' cm')}</dd><span>2,000 m and above</span></div>
+                            <div><dt>Snow in the villages</dt><dd>{range(depths(down), ' cm')}</dd><span>Below 2,000 m</span></div>
+                            <div><dt>Most new snow by {lastDay}</dt><dd>{wettest && wx[wettest.id].expectedCm >= 0.5 ? plusCm(wx[wettest.id].expectedCm) : 'None'}</dd><span>{wettest && wx[wettest.id].expectedCm >= 0.5 ? `at ${wettest.name}` : 'Dry for 10 days'}</span></div>
+                            <div><dt>Temperature now</dt><dd>{tRange(live.map((p) => wx[p.id].temp))}</dd><span>Lifts to villages</span></div>
+                        </dl>
+                        <div className="sr-lab"><span>New snow, next 10 days</span><span>on the mountain, cm</span></div>
+                        <SnowStrip days={mountainDays} />
+                    </>
+                )}
+            </div></section>
 
-        <section className="sr-hero">
-            <h1 className="sr-title">Sella<br />Ronda</h1>
-            <p className="sr-lede">Snow on the ground, new snow and temperature at 24 places around the Sella, from Open-Meteo. Updates every 10 minutes.</p>
-            {wxError && <div className="sr-error">Weather data failed to load. Check your connection and press Refresh.</div>}
-            {stats.length > 0 && (
-                <dl className="sr-stats">
-                    {stats.map((st) => (
-                        <div className="sr-stat" key={st.label}>
-                            <dt>{st.label}</dt>
-                            <dd>{st.value}</dd>
-                            <span>{st.where}</span>
-                        </div>
-                    ))}
-                </dl>
-            )}
-        </section>
-
-        <main className="sr-body">
-        {haveWx && (
-            <section className="sr-section">
-                <SectionHead no="01" title="Compare all places" note="Pick a measure. Every place is ranked on the same scale." />
-                <div className="sr-seg" role="tablist">
-                    {METRICS.map((m) => (
-                        <button type="button" role="tab" aria-selected={metric === m.id} className={metric === m.id ? 'on' : ''} key={m.id} onClick={() => setMetric(m.id)}>{m.tab}</button>
-                    ))}
-                </div>
-                <h3 className="sr-chart-title">{M.head}</h3>
-                <p className="sr-chart-note">{M.note}</p>
-                <RankBars metric={metric} wx={wx} />
-            </section>
-        )}
-
-        {haveWx && (
-            <section className="sr-section">
-                <SectionHead no="02" title="Where and when it will snow" note="New snow expected per day, in cm. Empty cells mean no snow. Today is the first column." />
-                <SnowMatrix wx={wx} />
-                <div className="sr-legend">
-                    <span><i className="h1" />under 2</span><span><i className="h2" />2–5</span><span><i className="h3" />5–10</span><span><i className="h4" />10–20</span><span><i className="h5" />20+ cm</span>
-                </div>
-            </section>
-        )}
-
-        {VALLEYS.map((valley, vi) => (
-            <section key={valley} className="sr-valley">
-                <div className="sr-valley-head">
-                    <span className="sr-sh-no">0{vi + 3}</span>
-                    <h2 className="sr-valley-name">{valley}</h2>
-                    <span className="sr-valley-count">{PLACES.filter((p) => p.valley === valley).length} places</span>
-                </div>
-                <div className="sr-places">
-                {PLACES.filter((p) => p.valley === valley).map((p) => {
-                    const d = wx[p.id];
-                    const g = d ? groupOf(d.code) : 'cloud';
+            <section className="sr-blk"><div className="sr-wrap">
+                <div className="sr-h2"><b>By valley</b><span>Tap a valley to see every place</span></div>
+                {VALLEYS.map((v) => {
+                    const all = PLACES.filter((p) => p.valley === v);
+                    const L = all.filter((p) => wx[p.id]);
+                    const m = L.filter((p) => p.elevation >= UP);
+                    const d = L.filter((p) => p.elevation < UP);
+                    const open = openValley === v;
                     return (
-                        <article key={p.id} className="sr-place">
-                            <header className="sr-place-head">
-                                <div>
-                                    <h3 className="sr-place-name">{p.name}</h3>
-                                    <span className="sr-place-meta">{fmtElev(p.elevation)}{KIND_LABEL[p.kind] !== '' ? ` · ${KIND_LABEL[p.kind]}` : ''} · {valley}</span>
+                        <div className={`sr-v${open ? ' open' : ''}`} key={v}>
+                            <button type="button" className="sr-v-head" aria-expanded={open} onClick={() => setOpenValley(open ? null : v)}>
+                                <span className="sr-v-t"><b>{v}</b><span>{all.length} place{all.length > 1 ? 's' : ''} {open ? '−' : '+'}</span></span>
+                                {L.length > 0 && (
+                                    <span className="sr-v-r">
+                                        <span><small>Mountain</small><i className={m.length ? '' : 'z'}>{m.length ? range(depths(m), ' cm') : '–'}</i></span>
+                                        <span><small>Village</small><i className={d.length ? '' : 'z'}>{d.length ? range(depths(d), ' cm') : '–'}</i></span>
+                                        <span><small>Most new snow</small><i className="b">{plusCm(Math.max(...L.map((p) => wx[p.id].expectedCm)))}</i></span>
+                                        <span><small>Coldest now</small><i>{tRound(Math.min(...L.map((p) => wx[p.id].temp)))}</i></span>
+                                    </span>
+                                )}
+                            </button>
+                            {open && (
+                                <div className="sr-pl">
+                                    <div className="sr-pl-h"><span /><span>On the ground</span><span>Next 10 days</span><span>Now</span></div>
+                                    {all.map((p) => {
+                                        const w = wx[p.id];
+                                        return (
+                                            <button type="button" className="sr-pl-row" key={p.id} onClick={() => openPlace(p.id)}>
+                                                <span className="sr-pl-n"><b>{p.name}</b><small>{fmtElev(p.elevation)}{p.kind !== 'village' ? ` · ${KIND_LABEL[p.kind]}` : ''}</small></span>
+                                                <span>{w ? fmtCm(w.depthCm) : '…'}</span>
+                                                <span className="b">{w ? plusCm(w.expectedCm) : ''}</span>
+                                                <span>{w ? tRound(w.temp) : ''}<em>›</em></span>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                                {d && <Glyph group={g} />}
-                            </header>
-                            {!d && !wxError && <p className="sr-loading">Loading…</p>}
-                            {d && (
-                                <>
-                                    <dl className="sr-kv">
-                                        <div><dt>Temperature now</dt><dd>{fmtT(Math.round(d.temp))}</dd><span>{WMO_EN[d.code] ?? ''} · feels like {fmtT(Math.round(d.feels))}</span></div>
-                                        <div><dt>Snow on the ground</dt><dd>{fmtCm(d.depthCm)}</dd><span>Model estimate</span></div>
-                                        <div><dt>New snow, last 7 days</dt><dd>{fmtNew(d.past7)}</dd><span>Last snowfall: {d.lastSnow}</span></div>
-                                        <div><dt>New snow, next 10 days</dt><dd className={d.expectedCm >= 0.5 ? 'blue' : ''}>{fmtNew(d.expectedCm)}</dd><span>Next snowfall: {d.nextSnow}</span></div>
-                                    </dl>
-                                    <PlaceChart d={d} />
-                                    <NextTable fc={d.fc} />
-                                </>
                             )}
-                            <div className="sr-cams">
-                                {p.cams.map((cam) => {
-                                    if (!cam.img) {
-                                        return <a key={cam.title} className="sr-cam-link" href={cam.page} target="_blank" rel="noreferrer">Live cam · {cam.title} ↗</a>;
-                                    }
-                                    const state = cams[cam.img];
-                                    if (state === 'error') {
-                                        return <a key={cam.title} className="sr-cam-link" href={cam.page} target="_blank" rel="noreferrer">{cam.title} · cam offline, open source ↗</a>;
-                                    }
-                                    return (
-                                        <figure key={cam.title} className="sr-cam">
-                                            {state && state !== 'loading'
-                                                ? <img src={state} alt={`Live webcam: ${cam.title}, ${p.name}`} />
-                                                : <div className="sr-cam-skeleton">Loading cam…</div>}
-                                            <figcaption>{cam.title} · <a href={cam.page} target="_blank" rel="noreferrer">source</a></figcaption>
-                                        </figure>
-                                    );
-                                })}
-                            </div>
-                        </article>
+                        </div>
                     );
                 })}
-                </div>
-            </section>
-        ))}
 
-        <footer className="sr-sources">
-            <p>
-                Weather and snow: Open-Meteo at each place. Snow on the ground is a model estimate, not an official resort measurement;
-                lift stations read deeper because the model sits higher on the mountain. Past snowfall is modelled, not measured.
-                Webcams: Feratel, courtesy of the Val Gardena, Val di Fassa, Alta Badia and Arabba tourism boards.
-                Some cams stop updating after dark; the timestamp printed on each image is its capture time, Italy time.
-            </p>
-        </footer>
-        </main>
+                <div className="sr-h2"><b>Webcams</b><span>Tap for the place</span></div>
+                <div className="sr-cams">
+                    {featured.map(({ p, cam }) => {
+                        const w = wx[p.id];
+                        return (
+                            <CamTile key={p.id} cam={cam} state={cam.img ? cams[cam.img] : undefined} onOpen={() => openPlace(p.id)}
+                                caption={<><b>{p.name}</b>{w && <small>{fmtCm(w.depthCm)} · <em>{plusCm(w.expectedCm)}</em> · {tRound(w.temp)}</small>}</>} />
+                        );
+                    })}
+                </div>
+                {footer}
+            </div></section>
         </div>
     </FileCard>;
 }
